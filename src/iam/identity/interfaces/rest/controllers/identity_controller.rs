@@ -1,6 +1,8 @@
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
+use crate::tenancy::interfaces::rest::middleware::TenantContext;
+use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 use axum::{
-    extract::{Json, Query, State},
+    extract::{Extension, Json, Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
@@ -55,6 +57,7 @@ use crate::iam::identity::application::outbound::acl::email_service::EmailServic
 )]
 pub async fn register_identity(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(payload): Json<RegisterIdentityRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = payload.validate() {
@@ -78,7 +81,16 @@ pub async fn register_identity(
 
     let command = RegisterIdentityCommand::new(email, password, provider);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db, schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            tracing::error!("Isolated DB strategy is not yet implemented");
+            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
+                .with_code(501)
+                .into_response();
+        }
+    };
     let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
     let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
 
@@ -153,6 +165,7 @@ pub async fn register_identity(
 )]
 pub async fn confirm_registration(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Query(params): Query<ConfirmEmailQueryParams>,
 ) -> impl IntoResponse {
     // Validate query params
@@ -187,7 +200,19 @@ pub async fn confirm_registration(
     // Use existing command for backward compatibility
     let command = ConfirmRegistrationCommand::new(query.token);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db, schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            tracing::error!("Isolated DB strategy is not yet implemented");
+            let error_url = format!(
+                "{}/email-verification-failed?error=service_unavailable&message={}",
+                state.frontend_url.as_deref().unwrap_or("http://localhost:3000"),
+                urlencoding::encode("Configuration error")
+            );
+            return Redirect::to(&error_url).into_response();
+        }
+    };
     let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
     let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
 
@@ -273,6 +298,7 @@ pub async fn confirm_registration(
 )]
 pub async fn request_password_reset(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(payload): Json<RequestPasswordResetRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = payload.validate() {
@@ -288,7 +314,16 @@ pub async fn request_password_reset(
 
     let command = RequestPasswordResetCommand::new(email);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db, schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            tracing::error!("Isolated DB strategy is not yet implemented");
+            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
+                .with_code(501)
+                .into_response();
+        }
+    };
     let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
     let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
 
@@ -355,6 +390,7 @@ pub async fn request_password_reset(
 )]
 pub async fn reset_password(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(payload): Json<ResetPasswordRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = payload.validate() {
@@ -368,7 +404,16 @@ pub async fn reset_password(
 
     let command = ResetPasswordCommand::new(payload.token, new_password);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db, schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            tracing::error!("Isolated DB strategy is not yet implemented");
+            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
+                .with_code(501)
+                .into_response();
+        }
+    };
     let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
     let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
 

@@ -5,6 +5,8 @@ use axum::{
 };
 use validator::Validate;
 use uuid::Uuid;
+use jsonwebtoken::{encode, EncodingKey, Header};
+use serde::Serialize;
 
 use crate::shared::interfaces::rest::{
     app_state::AppState,
@@ -24,10 +26,21 @@ use crate::tenancy::application::{
     query_services::tenant_query_service_impl::TenantQueryServiceImpl,
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use crate::tenancy::infrastructure::schema_initializer;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     tenant_resource::TenantResource,
+    strategy_type::StrategyType,
 };
+use crate::tenancy::domain::model::commands::create_tenant_command::StrategyTypeInput;
+use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
+
+#[derive(Debug, Serialize)]
+struct Claims {
+    iss: String,
+    tenant_id: Uuid,
+    role: String,
+}
 
 #[utoipa::path(
     post,
@@ -51,23 +64,39 @@ pub async fn create_tenant(
 
     let command = match CreateTenantCommand::new(
         payload.name,
-        payload.db_strategy,
-        payload.jwt_secret,
+        // Map DTO Enum to Domain Enum
+        match payload.db_strategy_type {
+            StrategyType::Shared => StrategyTypeInput::Shared,
+            StrategyType::Isolated => StrategyTypeInput::Isolated,
+        },
         payload.google_client_id,
         payload.google_client_secret,
-        payload.google_redirect_uri,
     ) {
         Ok(cmd) => cmd,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
 
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository);
+    let service = TenantCommandServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.create_tenant(command).await {
-        Ok(tenant) => {
+        Ok((tenant, anon_key)) => {
+            // Initialize tenant schema if using Shared DB strategy
+            if let DbStrategy::Shared { ref schema } = tenant.db_strategy {
+                match schema_initializer::initialize_tenant_schema(&state.db, schema).await {
+                    Ok(_) => tracing::info!("Schema '{}' initialized for tenant '{}'", schema, tenant.name.value()),
+                    Err(e) => {
+                        tracing::error!("Failed to initialize schema '{}': {}", schema, e);
+                        return ErrorResponse::new("Tenant created but schema initialization failed")
+                            .with_code(500)
+                            .into_response();
+                    }
+                }
+            }
+            
             let response = CreateTenantResponse {
                 id: tenant.id.to_string(),
+                anon_key,
             };
             (StatusCode::CREATED, Json(response)).into_response()
         }
@@ -108,7 +137,28 @@ pub async fn get_tenant(
     let service = TenantQueryServiceImpl::new(repository);
 
     match service.get_tenant(query).await {
-        Ok(Some(tenant)) => (StatusCode::OK, Json(TenantResource::from(tenant))).into_response(),
+        Ok(Some(tenant)) => {
+            // Generate API Key on the fly (Stateless)
+            let claims = Claims {
+                iss: "saas-system".to_string(),
+                tenant_id: tenant.id.value(),
+                role: "anon".to_string(),
+            };
+
+            let key = match encode(
+                &Header::default(),
+                &claims,
+                &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+            ) {
+                Ok(k) => k,
+                Err(e) => {
+                     tracing::error!("Failed to generate API Key for tenant {}: {}", id, e);
+                     return ErrorResponse::internal_error().into_response();
+                }
+            };
+
+            (StatusCode::OK, Json(TenantResource::new(tenant, key))).into_response()
+        },
         Ok(None) => ErrorResponse::new("Tenant not found")
             .with_code(404)
             .into_response(),

@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Json, Query, State},
+    extract::{Extension, Json, Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
@@ -30,6 +30,8 @@ use crate::iam::federation::{
 };
 use crate::iam::identity::infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl;
 use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
+use crate::tenancy::interfaces::rest::middleware::TenantContext;
+use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 
 #[utoipa::path(
     get,
@@ -39,15 +41,26 @@ use crate::shared::interfaces::rest::{app_state::AppState, error_response::Error
 )]
 pub async fn redirect_to_google(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     jar: CookieJar,
 ) -> impl IntoResponse {
+    // Validate that tenant has OAuth configured
+    let client_id = match &tenant_ctx.tenant.auth_config.google_client_id {
+        Some(id) => id,
+        None => {
+            return ErrorResponse::new("Google OAuth is not configured for this tenant")
+                .with_code(400)
+                .into_response();
+        }
+    };
+
     let csrf_state = Uuid::new_v4().to_string();
     let scope = urlencoding::encode("openid email profile");
-    let redirect_uri = urlencoding::encode(&state.google_redirect_uri);
+    let redirect_uri_encoded = urlencoding::encode(&state.google_redirect_uri);
 
     let url = format!(
         "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent&state={}",
-        state.google_client_id, redirect_uri, scope, csrf_state
+        client_id, redirect_uri_encoded, scope, csrf_state
     );
 
     let mut cookie = Cookie::new("oauth_state", csrf_state);
@@ -58,7 +71,7 @@ pub async fn redirect_to_google(
     // Expire in 10 minutes
     cookie.set_max_age(time::Duration::minutes(10));
 
-    (jar.add(cookie), Redirect::to(&url))
+    (jar.add(cookie), Redirect::to(&url)).into_response()
 }
 
 #[utoipa::path(
@@ -73,6 +86,7 @@ pub async fn redirect_to_google(
 )]
 pub async fn google_callback(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     jar: CookieJar,
     Query(query): Query<GoogleCallbackQuery>,
 ) -> impl IntoResponse {
@@ -103,16 +117,56 @@ pub async fn google_callback(
     // Clean up cookie
     let jar = jar.remove(Cookie::from("oauth_state"));
 
+    // Validate that tenant has OAuth configured
+    let google_client_id = match &tenant_ctx.tenant.auth_config.google_client_id {
+        Some(id) => id.clone(),
+        None => {
+            let redirect_url = format!(
+                "{}/login?error=oauth_not_configured&message={}",
+                frontend_url,
+                urlencoding::encode("Google OAuth is not configured for this tenant")
+            );
+            return (jar, Redirect::to(&redirect_url)).into_response();
+        }
+    };
+    
+    let google_client_secret = match &tenant_ctx.tenant.auth_config.google_client_secret {
+        Some(secret) => secret.clone(),
+        None => {
+            let redirect_url = format!(
+                "{}/login?error=oauth_not_configured&message={}",
+                frontend_url,
+                urlencoding::encode("Google OAuth is not configured for this tenant")
+            );
+            return (jar, Redirect::to(&redirect_url)).into_response();
+        }
+    };
+    
+    let google_redirect_uri = state.google_redirect_uri.clone();
+
     let oauth_client = GoogleOAuthClient::new(
-        state.google_client_id.clone(),
-        state.google_client_secret.clone(),
-        state.google_redirect_uri.clone(),
+        google_client_id,
+        google_client_secret,
+        google_redirect_uri,
         state.circuit_breaker.clone(),
     );
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            tracing::error!("Isolated strategy not implemented in Google Callback");
+             let redirect_url = format!(
+                "{}/login?error=internal_error&message={}",
+                frontend_url,
+                urlencoding::encode("Configuration Error: Isolated DB not supported")
+            );
+            return (jar, Redirect::to(&redirect_url)).into_response();
+        }
+    };
+    // Use tenant-specific JWT secret
     let token_service =
-        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
 

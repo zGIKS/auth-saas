@@ -8,6 +8,7 @@ use dotenvy::dotenv;
 use sea_orm::{ConnectionTrait, Database, Schema};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use auth_service::shared::infrastructure::persistence::redis as redis_infra;
@@ -16,6 +17,12 @@ use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
 #[tokio::main]
 async fn main() {
     dotenv().ok();
+
+    // Initialize tracing
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let port: u16 = std::env::var("PORT")
         .expect("PORT must be set")
@@ -29,7 +36,6 @@ async fn main() {
 
     let redis_client = redis_infra::connect().await;
 
-    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let session_duration_seconds: u64 = std::env::var("SESSION_DURATION_SECONDS")
         .expect("SESSION_DURATION_SECONDS must be set")
         .parse()
@@ -62,40 +68,31 @@ async fn main() {
 
     let frontend_url = std::env::var("FRONTEND_URL").ok();
 
-    let google_client_id = std::env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID must be set");
-    let google_client_secret =
-        std::env::var("GOOGLE_CLIENT_SECRET").expect("GOOGLE_CLIENT_SECRET must be set");
     let google_redirect_uri =
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
 
-    // Create table if not exists
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+
+    // Initialize database schema
+    // Only create the tenants table in public schema (metadata)
+    // User tables will be created per-tenant when a tenant is created
     let builder = db.get_database_backend();
     let schema = Schema::new(builder);
-    let mut create_table_op = schema.create_table_from_entity(
-        iam::identity::infrastructure::persistence::postgres::model::Entity,
-    );
-    let stmt = builder.build(create_table_op.if_not_exists());
-
-    match db.execute(stmt).await {
-        Ok(_) => println!("Table 'users' checked/created successfully."),
-        Err(e) => eprintln!("Error creating table: {}", e),
-    }
-
-    // Create Tenant table
+    
+    // Create Tenant table in public schema (global metadata)
     let mut create_tenant_table_op = schema.create_table_from_entity(
         tenancy::infrastructure::persistence::postgres::model::Entity,
     );
     let stmt_tenant = builder.build(create_tenant_table_op.if_not_exists());
 
     match db.execute(stmt_tenant).await {
-        Ok(_) => println!("Table 'tenants' checked/created successfully."),
-        Err(e) => eprintln!("Error creating table 'tenants': {}", e),
+        Ok(_) => tracing::info!("Table 'tenants' initialized in public schema"),
+        Err(e) => tracing::error!("Error creating 'tenants' table: {}", e),
     }
 
     let state = AppState {
         db,
         redis: redis_client,
-        jwt_secret,
         session_duration_seconds,
         refresh_token_duration_seconds,
         pending_registration_ttl_seconds,
@@ -103,13 +100,12 @@ async fn main() {
         frontend_url,
         lockout_threshold,
         lockout_duration_seconds,
-        google_client_id,
-        google_client_secret,
         google_redirect_uri,
+        jwt_secret,
         circuit_breaker: create_circuit_breaker(),
     };
 
-    let app = Router::new()
+    let tenant_aware_routes = Router::new()
         .route("/api/v1/auth/sign-up", post(iam::identity::interfaces::rest::controllers::identity_controller::register_identity))
         .route("/api/v1/auth/sign-in", post(iam::authentication::interfaces::rest::controllers::authentication_controller::signin))
         .route("/api/v1/auth/logout", post(iam::authentication::interfaces::rest::controllers::authentication_controller::logout))
@@ -121,6 +117,10 @@ async fn main() {
         .route("/api/v1/identity/confirm-registration", get(iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration))
         .route("/api/v1/identity/forgot-password", post(iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset))
         .route("/api/v1/identity/reset-password", post(iam::identity::interfaces::rest::controllers::identity_controller::reset_password))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), tenancy::interfaces::rest::middleware::tenant_resolver));
+
+    let app = Router::new()
+        .merge(tenant_aware_routes)
         // Tenancy Routes
         .route("/api/v1/tenants", post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant))
         .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant))
@@ -131,8 +131,8 @@ async fn main() {
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
 
-    println!("Servidor corriendo en http://localhost:{}", port);
-    println!(
+    tracing::info!("Servidor corriendo en http://localhost:{}", port);
+    tracing::info!(
         "Swagger UI disponible en http://localhost:{}/swagger-ui",
         port
     );

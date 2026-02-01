@@ -7,7 +7,6 @@ use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
 pub struct AppState {
     pub db: DatabaseConnection,
     pub redis: redis::Client,
-    pub jwt_secret: String,
     pub session_duration_seconds: u64,
     pub refresh_token_duration_seconds: u64,
     pub pending_registration_ttl_seconds: u64,
@@ -15,9 +14,8 @@ pub struct AppState {
     pub frontend_url: Option<String>,
     pub lockout_threshold: u64,
     pub lockout_duration_seconds: u64,
-    pub google_client_id: String,
-    pub google_client_secret: String,
-    pub google_redirect_uri: String,
+    pub google_redirect_uri: String,  // Fixed redirect URI for all tenants
+    pub jwt_secret: String,
     pub circuit_breaker: AppCircuitBreaker,
 }
 
