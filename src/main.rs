@@ -8,6 +8,7 @@ use dotenvy::dotenv;
 use sea_orm::{ConnectionTrait, Database, Schema};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use auth_service::shared::infrastructure::persistence::redis as redis_infra;
@@ -16,6 +17,12 @@ use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
 #[tokio::main]
 async fn main() {
     dotenv().ok();
+
+    // Initialize tracing
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 
     let port: u16 = std::env::var("PORT")
         .expect("PORT must be set")
@@ -77,8 +84,8 @@ async fn main() {
     let stmt_tenant = builder.build(create_tenant_table_op.if_not_exists());
 
     match db.execute(stmt_tenant).await {
-        Ok(_) => println!("Table 'tenants' initialized in public schema"),
-        Err(e) => eprintln!("Error creating 'tenants' table: {}", e),
+        Ok(_) => tracing::info!("Table 'tenants' initialized in public schema"),
+        Err(e) => tracing::error!("Error creating 'tenants' table: {}", e),
     }
 
     let state = AppState {
@@ -121,8 +128,8 @@ async fn main() {
     let addr = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
 
-    println!("Servidor corriendo en http://localhost:{}", port);
-    println!(
+    tracing::info!("Servidor corriendo en http://localhost:{}", port);
+    tracing::info!(
         "Swagger UI disponible en http://localhost:{}/swagger-ui",
         port
     );
