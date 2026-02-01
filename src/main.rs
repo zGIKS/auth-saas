@@ -109,7 +109,7 @@ async fn main() {
         circuit_breaker: create_circuit_breaker(),
     };
 
-    let app = Router::new()
+    let tenant_aware_routes = Router::new()
         .route("/api/v1/auth/sign-up", post(iam::identity::interfaces::rest::controllers::identity_controller::register_identity))
         .route("/api/v1/auth/sign-in", post(iam::authentication::interfaces::rest::controllers::authentication_controller::signin))
         .route("/api/v1/auth/logout", post(iam::authentication::interfaces::rest::controllers::authentication_controller::logout))
@@ -121,6 +121,10 @@ async fn main() {
         .route("/api/v1/identity/confirm-registration", get(iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration))
         .route("/api/v1/identity/forgot-password", post(iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset))
         .route("/api/v1/identity/reset-password", post(iam::identity::interfaces::rest::controllers::identity_controller::reset_password))
+        .layer(axum::middleware::from_fn_with_state(state.clone(), tenancy::interfaces::rest::middleware::tenant_resolver));
+
+    let app = Router::new()
+        .merge(tenant_aware_routes)
         // Tenancy Routes
         .route("/api/v1/tenants", post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant))
         .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant))
