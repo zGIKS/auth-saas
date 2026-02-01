@@ -3,6 +3,7 @@ use utoipa::OpenApi;
 pub mod iam;
 pub mod messaging;
 pub mod shared;
+pub mod tenancy;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -16,7 +17,9 @@ pub mod shared;
         iam::authentication::interfaces::rest::controllers::authentication_controller::refresh_token,
         iam::authentication::interfaces::rest::controllers::authentication_controller::verify_token,
         iam::federation::interfaces::rest::controllers::google_controller::redirect_to_google,
-        iam::federation::interfaces::rest::controllers::google_controller::google_callback
+        iam::federation::interfaces::rest::controllers::google_controller::google_callback,
+        tenancy::interfaces::rest::controllers::tenant_controller::create_tenant,
+        tenancy::interfaces::rest::controllers::tenant_controller::get_tenant
     ),
     components(
         schemas(
@@ -34,12 +37,16 @@ pub mod shared;
             iam::authentication::interfaces::rest::resources::verify_token_resource::VerifyTokenResource,
             iam::authentication::interfaces::rest::resources::verify_token_resource::VerifyTokenResponse,
             iam::federation::interfaces::rest::resources::google_callback_query::GoogleCallbackQuery,
+            tenancy::interfaces::rest::resources::create_tenant_resource::CreateTenantRequest,
+            tenancy::interfaces::rest::resources::create_tenant_resource::CreateTenantResponse,
+            tenancy::interfaces::rest::resources::tenant_resource::TenantResource,
             shared::interfaces::rest::error_response::ErrorResponse
         )
     ),
     tags(
         (name = "identity", description = "Identity management"),
-        (name = "auth", description = "Authentication")
+        (name = "auth", description = "Authentication"),
+        (name = "tenancy", description = "Tenant management")
     )
 )]
 pub struct ApiDoc;

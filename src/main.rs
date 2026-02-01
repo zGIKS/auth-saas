@@ -1,5 +1,5 @@
 use auth_service::shared::interfaces::rest::app_state::AppState;
-use auth_service::{ApiDoc, iam};
+use auth_service::{ApiDoc, iam, tenancy};
 use axum::{
     Router,
     routing::{get, post},
@@ -81,6 +81,17 @@ async fn main() {
         Err(e) => eprintln!("Error creating table: {}", e),
     }
 
+    // Create Tenant table
+    let mut create_tenant_table_op = schema.create_table_from_entity(
+        tenancy::infrastructure::persistence::postgres::model::Entity,
+    );
+    let stmt_tenant = builder.build(create_tenant_table_op.if_not_exists());
+
+    match db.execute(stmt_tenant).await {
+        Ok(_) => println!("Table 'tenants' checked/created successfully."),
+        Err(e) => eprintln!("Error creating table 'tenants': {}", e),
+    }
+
     let state = AppState {
         db,
         redis: redis_client,
@@ -110,6 +121,9 @@ async fn main() {
         .route("/api/v1/identity/confirm-registration", get(iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration))
         .route("/api/v1/identity/forgot-password", post(iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset))
         .route("/api/v1/identity/reset-password", post(iam::identity::interfaces::rest::controllers::identity_controller::reset_password))
+        // Tenancy Routes
+        .route("/api/v1/tenants", post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant))
+        .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state);
