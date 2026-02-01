@@ -6,6 +6,12 @@ use crate::tenancy::domain::model::value_objects::{
 use crate::tenancy::domain::error::TenantError;
 use rand::Rng;
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum StrategyTypeInput {
+    Shared,
+    Isolated,
+}
+
 #[derive(Debug)]
 pub struct CreateTenantCommand {
     pub name: TenantName,
@@ -16,12 +22,29 @@ pub struct CreateTenantCommand {
 impl CreateTenantCommand {
     pub fn new(
         name: String,
-        db_strategy: DbStrategy,
+        strategy_type: StrategyTypeInput,
         google_client_id: Option<String>,
         google_client_secret: Option<String>,
     ) -> Result<Self, TenantError> {
-        let name = TenantName::new(name).map_err(TenantError::InvalidName)?;
+        let name_vo = TenantName::new(name).map_err(TenantError::InvalidName)?;
         
+        // AUTO-GENERATE STRATEGY
+        // We do NOT trust user input for schema names.
+        // We generate it: "tenant_" + sanitized_name
+        let db_strategy = match strategy_type {
+            StrategyTypeInput::Shared => {
+                let safe_name = name_vo.value().replace('-', "_"); 
+                let schema_name = format!("tenant_{}", safe_name);
+                DbStrategy::Shared { schema: schema_name }
+            },
+            StrategyTypeInput::Isolated => {
+                // For MVP, we don't automate provisioning full DBs yet.
+                // We'll fallback to Shared or Placeholder.
+                // Ideally this triggers a workflow to create a DB.
+                DbStrategy::Isolated { connection_string: "postgres://placeholder".to_string() }
+            }
+        };
+
         // Generate a secure random JWT secret (64 bytes = 512 bits)
         let jwt_secret = Self::generate_jwt_secret();
         
@@ -32,7 +55,7 @@ impl CreateTenantCommand {
         ).map_err(TenantError::InvalidAuthConfig)?;
 
         Ok(Self {
-            name,
+            name: name_vo,
             db_strategy,
             auth_config,
         })

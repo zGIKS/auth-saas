@@ -30,7 +30,9 @@ use crate::tenancy::infrastructure::schema_initializer;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     tenant_resource::TenantResource,
+    strategy_type::StrategyType,
 };
+use crate::tenancy::domain::model::commands::create_tenant_command::StrategyTypeInput;
 use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 
 #[derive(Debug, Serialize)]
@@ -62,7 +64,11 @@ pub async fn create_tenant(
 
     let command = match CreateTenantCommand::new(
         payload.name,
-        payload.db_strategy,
+        // Map DTO Enum to Domain Enum
+        match payload.db_strategy_type {
+            StrategyType::Shared => StrategyTypeInput::Shared,
+            StrategyType::Isolated => StrategyTypeInput::Isolated,
+        },
         payload.google_client_id,
         payload.google_client_secret,
     ) {

@@ -1,15 +1,23 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
-use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
+use crate::tenancy::interfaces::rest::resources::strategy_type::StrategyType;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 pub struct CreateTenantRequest {
-    #[validate(length(min = 1, max = 100))]
+    #[validate(length(min = 3, max = 30), regex(path = *REGEX_SAFE_NAME, message = "Name must involve alphanumeric characters, hyphens or underscores only"))]
     pub name: String,
-    pub db_strategy: DbStrategy,
+    
+    // User only selects the TYPE ("shared" or "isolated")
+    // They don't provide schema names or connection strings
+    pub db_strategy_type: StrategyType,
+    
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
+}
+
+lazy_static::lazy_static! {
+    static ref REGEX_SAFE_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_-]+$").unwrap();
 }
 
 #[derive(Debug, Serialize, ToSchema)]
