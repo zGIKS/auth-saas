@@ -30,9 +30,11 @@ use crate::iam::identity::{
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutService;
 use crate::shared::interfaces::rest::app_state::AppState;
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
+use crate::tenancy::interfaces::rest::middleware::TenantContext;
+use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 
 use axum::{
-    extract::{ConnectInfo, Json, Query, State},
+    extract::{ConnectInfo, Extension, Json, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -52,6 +54,7 @@ use validator::Validate;
 )]
 pub async fn signin(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     // ConnectInfo is available because we use into_make_service_with_connect_info in main.rs
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(resource): Json<SigninResource>,
@@ -63,10 +66,20 @@ pub async fn signin(
     // Extract IP from ConnectInfo
     let ip_address = Some(addr.ip().to_string());
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::with_schema(state.db.clone(), schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            // For isolated strategy, each tenant would have their own connection
+            // For now, we'll use the default connection with public schema
+            // TODO: Implement connection pool per tenant for isolated strategy
+            IdentityRepositoryImpl::new(state.db.clone())
+        }
+    };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
+    // Use tenant-specific JWT secret instead of global one
     let token_service =
-        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
     let lockout_service = AccountLockoutService::new(state.redis.clone());
@@ -116,16 +129,24 @@ pub async fn signin(
 )]
 pub async fn logout(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(resource): Json<LogoutResource>,
 ) -> impl IntoResponse {
     if let Err(e) = resource.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::with_schema(state.db.clone(), schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            IdentityRepositoryImpl::new(state.db.clone())
+        }
+    };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
+    // Use tenant-specific JWT secret instead of global one
     let token_service =
-        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
     let lockout_service = AccountLockoutService::new(state.redis.clone());
@@ -168,16 +189,24 @@ pub async fn logout(
 )]
 pub async fn refresh_token(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(resource): Json<RefreshTokenResource>,
 ) -> impl IntoResponse {
     if let Err(e) = resource.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
+    // Get schema from tenant's DB strategy
+    let identity_repo = match &tenant_ctx.tenant.db_strategy {
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::with_schema(state.db.clone(), schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            IdentityRepositoryImpl::new(state.db.clone())
+        }
+    };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
+    // Use tenant-specific JWT secret instead of global one
     let token_service =
-        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
     let lockout_service = AccountLockoutService::new(state.redis.clone());
@@ -228,14 +257,16 @@ pub async fn refresh_token(
 )]
 pub async fn verify_token(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Query(resource): Query<VerifyTokenResource>,
 ) -> impl IntoResponse {
     if let Err(e) = resource.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
+    // Use tenant-specific JWT secret instead of global one
     let token_service =
-        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
 

@@ -24,10 +24,12 @@ use crate::tenancy::application::{
     query_services::tenant_query_service_impl::TenantQueryServiceImpl,
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use crate::tenancy::infrastructure::schema_initializer;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     tenant_resource::TenantResource,
 };
+use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 
 #[utoipa::path(
     post,
@@ -52,10 +54,8 @@ pub async fn create_tenant(
     let command = match CreateTenantCommand::new(
         payload.name,
         payload.db_strategy,
-        payload.jwt_secret,
         payload.google_client_id,
         payload.google_client_secret,
-        payload.google_redirect_uri,
     ) {
         Ok(cmd) => cmd,
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
@@ -66,6 +66,19 @@ pub async fn create_tenant(
 
     match service.create_tenant(command).await {
         Ok(tenant) => {
+            // Initialize tenant schema if using Shared DB strategy
+            if let DbStrategy::Shared { ref schema } = tenant.db_strategy {
+                match schema_initializer::initialize_tenant_schema(&state.db, schema).await {
+                    Ok(_) => tracing::info!("Schema '{}' initialized for tenant '{}'", schema, tenant.name.value()),
+                    Err(e) => {
+                        tracing::error!("Failed to initialize schema '{}': {}", schema, e);
+                        return ErrorResponse::new("Tenant created but schema initialization failed")
+                            .with_code(500)
+                            .into_response();
+                    }
+                }
+            }
+            
             let response = CreateTenantResponse {
                 id: tenant.id.to_string(),
             };

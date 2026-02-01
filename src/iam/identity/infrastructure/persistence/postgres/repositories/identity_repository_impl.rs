@@ -17,11 +17,34 @@ use std::str::FromStr;
 
 pub struct IdentityRepositoryImpl {
     db: DatabaseConnection,
+    schema: Option<String>,
 }
 
 impl IdentityRepositoryImpl {
     pub fn new(db: DatabaseConnection) -> Self {
-        Self { db }
+        Self { db, schema: None }
+    }
+
+    pub fn with_schema(db: DatabaseConnection, schema: String) -> Self {
+        Self { db, schema: Some(schema) }
+    }
+
+    /// Set the search_path LOCALLY within a transaction to isolate tenant data.
+    /// Uses SET LOCAL which automatically reverts when the transaction ends,
+    /// preventing connection pool contamination.
+    async fn set_search_path_in_txn(
+        &self,
+        txn: &DatabaseTransaction,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        if let Some(schema) = &self.schema {
+            // SET LOCAL only affects the current transaction and auto-reverts
+            let query = format!("SET LOCAL search_path TO {}", schema);
+            txn.execute(Statement::from_string(
+                DatabaseBackend::Postgres,
+                query
+            )).await?;
+        }
+        Ok(())
     }
 }
 
@@ -30,19 +53,28 @@ impl IdentityRepository for IdentityRepositoryImpl {
         &self,
         identity: DomainIdentity,
     ) -> Result<DomainIdentity, Box<dyn Error + Send + Sync>> {
+        // Use a transaction to ensure SET LOCAL search_path is automatically reverted
+        let txn = self.db.begin().await?;
+        self.set_search_path_in_txn(&txn).await?;
+        
         let insert_model = Self::build_active_model(&identity);
 
-        match IdentityEntity::insert(insert_model).exec(&self.db).await {
-            Ok(_) => Ok(identity),
+        match IdentityEntity::insert(insert_model).exec(&txn).await {
+            Ok(_) => {
+                txn.commit().await?;
+                Ok(identity)
+            },
             Err(err) => {
                 if Self::is_duplicate_key_error(&err) {
                     let update_model = Self::build_active_model(&identity);
                     IdentityEntity::update(update_model)
-                        .exec(&self.db)
+                        .exec(&txn)
                         .await
                         .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+                    txn.commit().await?;
                     Ok(identity)
                 } else {
+                    txn.rollback().await?;
                     Err(Box::new(err))
                 }
             }
@@ -53,10 +85,17 @@ impl IdentityRepository for IdentityRepositoryImpl {
         &self,
         email: &Email,
     ) -> Result<Option<DomainIdentity>, Box<dyn Error + Send + Sync>> {
+        // Use a transaction to ensure SET LOCAL search_path is automatically reverted
+        let txn = self.db.begin().await?;
+        self.set_search_path_in_txn(&txn).await?;
+        
         let model = IdentityEntity::find()
             .filter(Column::Email.eq(email.value()))
-            .one(&self.db)
+            .one(&txn)
             .await?;
+
+        // Read-only, but commit to release the transaction
+        txn.commit().await?;
 
         match model {
             Some(m) => {

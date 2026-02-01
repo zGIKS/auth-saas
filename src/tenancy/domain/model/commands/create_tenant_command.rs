@@ -4,6 +4,7 @@ use crate::tenancy::domain::model::value_objects::{
     auth_config::AuthConfig,
 };
 use crate::tenancy::domain::error::TenantError;
+use rand::Rng;
 
 #[derive(Debug)]
 pub struct CreateTenantCommand {
@@ -16,18 +17,18 @@ impl CreateTenantCommand {
     pub fn new(
         name: String,
         db_strategy: DbStrategy,
-        jwt_secret: String,
         google_client_id: Option<String>,
         google_client_secret: Option<String>,
-        google_redirect_uri: Option<String>,
     ) -> Result<Self, TenantError> {
         let name = TenantName::new(name).map_err(TenantError::InvalidName)?;
+        
+        // Generate a secure random JWT secret (64 bytes = 512 bits)
+        let jwt_secret = Self::generate_jwt_secret();
         
         let auth_config = AuthConfig::new(
             jwt_secret,
             google_client_id,
             google_client_secret,
-            google_redirect_uri,
         ).map_err(TenantError::InvalidAuthConfig)?;
 
         Ok(Self {
@@ -35,5 +36,13 @@ impl CreateTenantCommand {
             db_strategy,
             auth_config,
         })
+    }
+    
+    /// Generates a cryptographically secure random JWT secret
+    /// Returns a hex-encoded string of 64 random bytes (128 hex chars)
+    fn generate_jwt_secret() -> String {
+        let mut rng = rand::rng();
+        let random_bytes: [u8; 64] = rng.random();
+        hex::encode(random_bytes)
     }
 }

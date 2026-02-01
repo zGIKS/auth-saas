@@ -8,10 +8,8 @@ pub struct CreateTenantRequest {
     #[validate(length(min = 1, max = 100))]
     pub name: String,
     pub db_strategy: DbStrategy,
-    pub jwt_secret: String,
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
-    pub google_redirect_uri: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

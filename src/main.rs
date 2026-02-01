@@ -29,7 +29,6 @@ async fn main() {
 
     let redis_client = redis_infra::connect().await;
 
-    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let session_duration_seconds: u64 = std::env::var("SESSION_DURATION_SECONDS")
         .expect("SESSION_DURATION_SECONDS must be set")
         .parse()
@@ -62,40 +61,29 @@ async fn main() {
 
     let frontend_url = std::env::var("FRONTEND_URL").ok();
 
-    let google_client_id = std::env::var("GOOGLE_CLIENT_ID").expect("GOOGLE_CLIENT_ID must be set");
-    let google_client_secret =
-        std::env::var("GOOGLE_CLIENT_SECRET").expect("GOOGLE_CLIENT_SECRET must be set");
     let google_redirect_uri =
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
 
-    // Create table if not exists
+    // Initialize database schema
+    // Only create the tenants table in public schema (metadata)
+    // User tables will be created per-tenant when a tenant is created
     let builder = db.get_database_backend();
     let schema = Schema::new(builder);
-    let mut create_table_op = schema.create_table_from_entity(
-        iam::identity::infrastructure::persistence::postgres::model::Entity,
-    );
-    let stmt = builder.build(create_table_op.if_not_exists());
-
-    match db.execute(stmt).await {
-        Ok(_) => println!("Table 'users' checked/created successfully."),
-        Err(e) => eprintln!("Error creating table: {}", e),
-    }
-
-    // Create Tenant table
+    
+    // Create Tenant table in public schema (global metadata)
     let mut create_tenant_table_op = schema.create_table_from_entity(
         tenancy::infrastructure::persistence::postgres::model::Entity,
     );
     let stmt_tenant = builder.build(create_tenant_table_op.if_not_exists());
 
     match db.execute(stmt_tenant).await {
-        Ok(_) => println!("Table 'tenants' checked/created successfully."),
-        Err(e) => eprintln!("Error creating table 'tenants': {}", e),
+        Ok(_) => println!("Table 'tenants' initialized in public schema"),
+        Err(e) => eprintln!("Error creating 'tenants' table: {}", e),
     }
 
     let state = AppState {
         db,
         redis: redis_client,
-        jwt_secret,
         session_duration_seconds,
         refresh_token_duration_seconds,
         pending_registration_ttl_seconds,
@@ -103,8 +91,6 @@ async fn main() {
         frontend_url,
         lockout_threshold,
         lockout_duration_seconds,
-        google_client_id,
-        google_client_secret,
         google_redirect_uri,
         circuit_breaker: create_circuit_breaker(),
     };
