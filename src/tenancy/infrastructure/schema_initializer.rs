@@ -1,4 +1,4 @@
-use sea_orm::{ConnectionTrait, DatabaseConnection, Schema, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Schema, Statement, TransactionTrait};
 use std::error::Error;
 
 /// Initializes a tenant-specific schema with all required tables
@@ -7,18 +7,21 @@ pub async fn initialize_tenant_schema(
     db: &DatabaseConnection,
     schema_name: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
+    // Start a transaction to ensure we use the same connection for all commands
+    // This is critical because SET search_path is session-local.
+    let txn = db.begin().await?;
     let backend = db.get_database_backend();
     
     // 1. Create the schema
     let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS {}", schema_name);
-    db.execute(Statement::from_string(backend, create_schema_sql))
+    txn.execute(Statement::from_string(backend, create_schema_sql))
         .await?;
     
     tracing::info!("Schema '{}' created", schema_name);
     
-    // 2. Set search_path to the new schema temporarily
-    let set_search_path_sql = format!("SET search_path TO {}", schema_name);
-    db.execute(Statement::from_string(backend, set_search_path_sql))
+    // 2. Set search_path to the new schema temporarily (scoped to this transaction)
+    let set_search_path_sql = format!("SET LOCAL search_path TO {}", schema_name);
+    txn.execute(Statement::from_string(backend, set_search_path_sql))
         .await?;
     
     // 3. Create users table in the tenant schema
@@ -28,14 +31,13 @@ pub async fn initialize_tenant_schema(
     );
     let stmt = backend.build(create_users_table.if_not_exists());
     
-    db.execute(stmt).await?;
+    txn.execute(stmt).await?;
     
     tracing::info!("Table 'users' created in schema '{}'", schema_name);
     
-    // 4. Reset search_path to public
-    let reset_search_path_sql = "SET search_path TO public";
-    db.execute(Statement::from_string(backend, reset_search_path_sql))
-        .await?;
+    // No need to reset search_path manually because SET LOCAL reverts at transaction end
+    
+    txn.commit().await?;
     
     Ok(())
 }

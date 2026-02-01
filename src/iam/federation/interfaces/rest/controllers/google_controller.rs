@@ -153,8 +153,16 @@ pub async fn google_callback(
 
     // Get schema from tenant's DB strategy
     let identity_repo = match &tenant_ctx.tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::with_schema(state.db.clone(), schema.clone()),
-        DbStrategy::Isolated { .. } => IdentityRepositoryImpl::new(state.db.clone()),
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
+        DbStrategy::Isolated { .. } => {
+            tracing::error!("Isolated strategy not implemented in Google Callback");
+             let redirect_url = format!(
+                "{}/login?error=internal_error&message={}",
+                frontend_url,
+                urlencoding::encode("Configuration Error: Isolated DB not supported")
+            );
+            return (jar, Redirect::to(&redirect_url)).into_response();
+        }
     };
     // Use tenant-specific JWT secret
     let token_service =

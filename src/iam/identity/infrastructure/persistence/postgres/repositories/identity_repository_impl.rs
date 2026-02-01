@@ -17,16 +17,12 @@ use std::str::FromStr;
 
 pub struct IdentityRepositoryImpl {
     db: DatabaseConnection,
-    schema: Option<String>,
+    schema: String,
 }
 
 impl IdentityRepositoryImpl {
-    pub fn new(db: DatabaseConnection) -> Self {
-        Self { db, schema: None }
-    }
-
-    pub fn with_schema(db: DatabaseConnection, schema: String) -> Self {
-        Self { db, schema: Some(schema) }
+    pub fn new(db: DatabaseConnection, schema: String) -> Self {
+        Self { db, schema }
     }
 
     /// Set the search_path LOCALLY within a transaction to isolate tenant data.
@@ -36,14 +32,12 @@ impl IdentityRepositoryImpl {
         &self,
         txn: &DatabaseTransaction,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        if let Some(schema) = &self.schema {
-            // SET LOCAL only affects the current transaction and auto-reverts
-            let query = format!("SET LOCAL search_path TO {}", schema);
-            txn.execute(Statement::from_string(
-                DatabaseBackend::Postgres,
-                query
-            )).await?;
-        }
+        // SET LOCAL only affects the current transaction and auto-reverts
+        let query = format!("SET LOCAL search_path TO {}", self.schema);
+        txn.execute(Statement::from_string(
+            DatabaseBackend::Postgres,
+            query
+        )).await?;
         Ok(())
     }
 }

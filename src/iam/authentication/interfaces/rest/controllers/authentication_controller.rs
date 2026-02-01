@@ -68,12 +68,12 @@ pub async fn signin(
 
     // Get schema from tenant's DB strategy
     let identity_repo = match &tenant_ctx.tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::with_schema(state.db.clone(), schema.clone()),
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
         DbStrategy::Isolated { .. } => {
-            // For isolated strategy, each tenant would have their own connection
-            // For now, we'll use the default connection with public schema
-            // TODO: Implement connection pool per tenant for isolated strategy
-            IdentityRepositoryImpl::new(state.db.clone())
+            tracing::error!("Isolated DB strategy is not yet implemented");
+            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
+                .with_code(501)
+                .into_response();
         }
     };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
@@ -138,9 +138,12 @@ pub async fn logout(
 
     // Get schema from tenant's DB strategy
     let identity_repo = match &tenant_ctx.tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::with_schema(state.db.clone(), schema.clone()),
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
         DbStrategy::Isolated { .. } => {
-            IdentityRepositoryImpl::new(state.db.clone())
+            tracing::error!("Isolated DB strategy is not yet implemented");
+            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
+                .with_code(501)
+                .into_response();
         }
     };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
@@ -198,9 +201,12 @@ pub async fn refresh_token(
 
     // Get schema from tenant's DB strategy
     let identity_repo = match &tenant_ctx.tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::with_schema(state.db.clone(), schema.clone()),
+        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
         DbStrategy::Isolated { .. } => {
-            IdentityRepositoryImpl::new(state.db.clone())
+            tracing::error!("Isolated DB strategy is not yet implemented");
+            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
+                .with_code(501)
+                .into_response();
         }
     };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
