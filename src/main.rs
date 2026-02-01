@@ -71,6 +71,8 @@ async fn main() {
     let google_redirect_uri =
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
 
+    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+
     // Initialize database schema
     // Only create the tenants table in public schema (metadata)
     // User tables will be created per-tenant when a tenant is created
@@ -99,6 +101,7 @@ async fn main() {
         lockout_threshold,
         lockout_duration_seconds,
         google_redirect_uri,
+        jwt_secret,
         circuit_breaker: create_circuit_breaker(),
     };
 

@@ -7,5 +7,5 @@ use crate::tenancy::domain::error::TenantError;
 
 #[async_trait]
 pub trait TenantCommandService: Send + Sync {
-    async fn create_tenant(&self, command: CreateTenantCommand) -> Result<Tenant, TenantError>;
+    async fn create_tenant(&self, command: CreateTenantCommand) -> Result<(Tenant, String), TenantError>;
 }

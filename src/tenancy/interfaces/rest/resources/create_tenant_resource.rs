@@ -15,4 +15,5 @@ pub struct CreateTenantRequest {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateTenantResponse {
     pub id: String,
+    pub anon_key: String,
 }

@@ -13,16 +13,19 @@ pub struct TenantResource {
     pub db_strategy: DbStrategy,
     pub auth_config: AuthConfig,
     pub active: bool,
+    pub anon_key: String,
 }
 
-impl From<Tenant> for TenantResource {
-    fn from(tenant: Tenant) -> Self {
+impl TenantResource {
+    // Helper para construir el recurso
+    pub fn new(tenant: Tenant, anon_key: String) -> Self {
         Self {
             id: tenant.id.value(),
             name: tenant.name.value().to_string(),
             db_strategy: tenant.db_strategy,
             auth_config: tenant.auth_config,
             active: tenant.active,
+            anon_key,
         }
     }
 }

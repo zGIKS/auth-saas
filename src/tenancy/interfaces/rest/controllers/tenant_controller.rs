@@ -5,6 +5,8 @@ use axum::{
 };
 use validator::Validate;
 use uuid::Uuid;
+use jsonwebtoken::{encode, EncodingKey, Header};
+use serde::Serialize;
 
 use crate::shared::interfaces::rest::{
     app_state::AppState,
@@ -30,6 +32,13 @@ use crate::tenancy::interfaces::rest::resources::{
     tenant_resource::TenantResource,
 };
 use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
+
+#[derive(Debug, Serialize)]
+struct Claims {
+    iss: String,
+    tenant_id: Uuid,
+    role: String,
+}
 
 #[utoipa::path(
     post,
@@ -62,10 +71,10 @@ pub async fn create_tenant(
     };
 
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository);
+    let service = TenantCommandServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.create_tenant(command).await {
-        Ok(tenant) => {
+        Ok((tenant, anon_key)) => {
             // Initialize tenant schema if using Shared DB strategy
             if let DbStrategy::Shared { ref schema } = tenant.db_strategy {
                 match schema_initializer::initialize_tenant_schema(&state.db, schema).await {
@@ -81,6 +90,7 @@ pub async fn create_tenant(
             
             let response = CreateTenantResponse {
                 id: tenant.id.to_string(),
+                anon_key,
             };
             (StatusCode::CREATED, Json(response)).into_response()
         }
@@ -121,7 +131,28 @@ pub async fn get_tenant(
     let service = TenantQueryServiceImpl::new(repository);
 
     match service.get_tenant(query).await {
-        Ok(Some(tenant)) => (StatusCode::OK, Json(TenantResource::from(tenant))).into_response(),
+        Ok(Some(tenant)) => {
+            // Generate API Key on the fly (Stateless)
+            let claims = Claims {
+                iss: "saas-system".to_string(),
+                tenant_id: tenant.id.value(),
+                role: "anon".to_string(),
+            };
+
+            let key = match encode(
+                &Header::default(),
+                &claims,
+                &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+            ) {
+                Ok(k) => k,
+                Err(e) => {
+                     tracing::error!("Failed to generate API Key for tenant {}: {}", id, e);
+                     return ErrorResponse::internal_error().into_response();
+                }
+            };
+
+            (StatusCode::OK, Json(TenantResource::new(tenant, key))).into_response()
+        },
         Ok(None) => ErrorResponse::new("Tenant not found")
             .with_code(404)
             .into_response(),
