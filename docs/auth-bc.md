@@ -49,8 +49,8 @@ Todo se configura vía `AppState` (`SESSION_DURATION_SECONDS`, `REFRESH_TOKEN_DU
   4. Retorna `VerifyTokenResponse { is_valid, sub, error? }` con 200 y `is_valid=false` si el token no pasa las reglas de negocio.
 
 ### Google OAuth (Federation, usa servicios del contexto)
-- **`GET /api/v1/auth/google`**: construye la URL de autorización de Google con el `client_id` del tenant; guarda `state` anti-CSRF en cookie HTTP-only y redirige.
-- **`GET /api/v1/auth/google/callback`**: valida el `state`, consulta el tenant para `google_client_id/secret`, usa `GoogleOAuthClient` (con circuito breaker) para intercambiar código y obtener usuario; crea identidad si no existe y genera JWT+refresh exactamente como en sign-in; guarda los tokens en Redis y devuelve un código efímero.
+- **`GET /api/v1/auth/google`**: requiere `anon_key` porque usa `tenant_ctx`. Genera un `state` firmado (JWT) con `tenant_id`, `iat`, `nonce`, `exp` y redirige a Google. Para iniciar el flujo desde el navegador, usa una route intermedia en tu frontend que pueda enviar headers.
+- **`GET /api/v1/auth/google/callback`**: **ruta pública**. Valida el `state` firmado, extrae `tenant_id`, carga el tenant, usa `GoogleOAuthClient` (circuit breaker) para intercambiar el `code` y genera JWT+refresh; guarda los tokens en Redis y devuelve un código efímero.
 - **`POST /api/v1/auth/google/claim`**: el frontend intercambia el código por el par `token/refresh_token` real (repo Redis `google_exchange:<code>` con TTL corto y borrado inmediato para evitar replays).
 
 ## Tokens y sesiones
@@ -90,7 +90,7 @@ Todo se configura vía `AppState` (`SESSION_DURATION_SECONDS`, `REFRESH_TOKEN_DU
 2. **Refrescar tokens automáticamente** antes de que expire el JWT (usa `refresh_token`, rota ambos).
 3. **Logout**: envía el `refresh_token` para que el backend borre sesión y refresh.
 4. **Verificar token**: útil para comprobar si el token sigue vigente antes de mostrar zonas protegidas (`/auth/verify`).
-5. **Google OAuth**: sigue la secuencia `/auth/google` → usuario en Google → callback redirige con `code` → frontend llama `/auth/google/claim` y obtiene `token` + `refresh_token`.
+5. **Google OAuth**: inicia `/auth/google` con `anon_key` (por ejemplo desde una route intermedia), usuario en Google → callback público valida `state` → backend redirige con `code` → frontend llama `/auth/google/claim` y obtiene `token` + `refresh_token`.
 6. **Errores y seguridad**: presenta mensajes genéricos al usuario, no expongas detalles del backend (ej. `forgot-password` siempre responde 200).
 
 ## Referencias de código
