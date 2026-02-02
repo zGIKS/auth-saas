@@ -1,78 +1,73 @@
-# Swagger Axum API
+# SaaS Auth Platform
 
-A simple API built with Axum and Rust that provides a "Hello World" endpoint with Swagger documentation.
+Este repositorio contiene el backend del servicio de autenticación y autorización multi-tenant basado en Axum + SeaORM. Incluye contextos modulares para **tenancy**, **identity**, **authentication**, **federation**, **messaging** y utilidades compartidas. El servidor expone Swagger y endpoints REST para todo el ciclo de vida de usuarios, tokens, tenants y federación con Google.
 
-## Features
+## Características principales
 
-- GET /hello endpoint that returns "Hello World"
-- Automatic documentation with Swagger UI
-- Port configuration through environment variables
-- Asynchronous web server with Tokio
+- Configuración multi-tenant con estrategias `shared` / `isolated` y claves `anon_key`.
+- Registro, verificación de email, login, refresh/logout, recuperación de contraseña y Google OAuth.
+- Redis para sesiones, refresh tokens, rate limiting y lockout.
+- Circuit breaker y mensajería SMTP para notificaciones seguras.
+- Documentación OpenAPI pública (`/swagger-ui` y `/api-docs/openapi.json`).
 
-## Requirements
+## Requisitos
 
-- Rust 1.70 or higher
+- Rust 1.70+
 - Cargo
+- PostgreSQL y Redis accesibles con las URLs definidas en `.env`
 
-## Installation
+## Instalación y ejecución
 
-1. Clone the repository:
+1. Clona el repositorio:
    ```bash
-   git clone <repository-url>
+   git clone <repository-url> auth-service
    cd auth-service
    ```
-
-2. Install dependencies:
+2. Ajusta `.env` con las variables obligatorias (ejemplo mínimo en `.env`).
+3. Compila y ejecuta:
    ```bash
-   cargo build
+   cargo run
    ```
+4. Accede al servidor en `http://localhost:<PORT>` (por defecto 8081 según `.env`).
 
-## Configuration
+## Configuración clave
 
-Create a `.env` file in the project root:
+Variables imprescindibles (usa `.env`):
 
-```
-PORT=3000
-```
+- `DATABASE_URL`, `REDIS_URL`: conexiones a Postgres y Redis.
+- `JWT_SECRET`, `SESSION_DURATION_SECONDS`, `REFRESH_TOKEN_DURATION_SECONDS`: seguridad de tokens.
+- `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`: rutas de callback y referencia para correos.
+- `SMTP_*`: servidor SMTP para correos transaccionales.
+- `LOCKOUT_THRESHOLD`, `LOCKOUT_DURATION_SECONDS`: control de bloqueo por intentos fallidos.
 
-If not specified, the default port is 3000.
+Consulta `.env` para un set completo de ejemplo local.
 
-## Running
+## Endpoints principales
 
-```bash
-cargo run
-```
+Además del Swagger (`/swagger-ui`), el backend expone:
 
-The server will start at `http://localhost:<PORT>`.
+- `/api/v1/tenants`: creación/consulta de tenants y sus claves anon.
+- `/api/v1/auth/*`: login, logout, refresh, verificación y federación con Google.
+- `/api/v1/identity/*`: flujo completo de registro, confirmación y recuperación de contraseña.
+- `/api/v1/auth/google/*`: inicio de OAuth y claim de tokens intercambiados en Redis.
 
-## API Endpoints
+Para detalles completos de payloads, errores y flujos sugeridos revisa `docs/`.
 
-### GET /hello
+## Documentación de bounded contexts
 
-Returns a "Hello World" message.
+Los documentos en `docs/` explican cada módulo con visión general, endpoints, variables, errores, ejemplos y referencias de código:
 
-**Response:**
-- 200 OK: "Hello World"
+- `identity-bc.md`: registro/confirmación, reset, envío de correos, interacción con Redis y lockout.
+- `auth-bc.md`: login, refresh, logout, verificación de JWT y Google OAuth (incluye ejemplos de request/respuesta).
+- `tenancy-bc.md`: creación de tenants, estrategias de DB, generación de `anon_key`.
+- `federation-bc.md`: flujo completo de Google OAuth, CSRF y tokens temporales.
+- `messaging-bc.md`: pipeline de mensajería, circuit breaker y configuración SMTP.
+- `shared-bc.md`: AppState, middleware, rate limiter, circuit breaker y modelos auditables comunes.
 
-## Swagger Documentation
+## Recursos adicionales
 
-Access the interactive documentation at: `http://localhost:<PORT>/swagger-ui`
+- Swagger UI: `http://localhost:<PORT>/swagger-ui`
+- OpenAPI JSON:  `http://localhost:<PORT>/api-docs/openapi.json`
+- Carpetas clave: `src/iam`, `src/tenancy`, `src/messaging`, `src/shared`
 
-## Dependencies
-
-- `axum`: Web framework for Rust
-- `tokio`: Asynchronous runtime
-- `utoipa`: OpenAPI generation
-- `utoipa-swagger-ui`: Swagger UI interface
-- `dotenvy`: Environment variable loading
-
-## Project Structure
-
-```
-.
-├── Cargo.toml          # Rust project configuration
-├── .env                # Environment variables
-├── src/
-│   └── main.rs         # Main application code
-└── README.md           # This documentation
-```
+Mantén la documentación en `docs/` sincronizada si agregas nuevos endpoints o variables.
