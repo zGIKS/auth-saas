@@ -1,14 +1,19 @@
 use auth_service::shared::infrastructure::services::account_lockout::{
     AccountLockoutService, AccountLockoutVerifier,
 };
-use redis::Client;
+use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use redis::AsyncCommands;
 
 #[tokio::test]
-async fn test_lockout_isolation_by_ip() {
-    // Setup Redis client (assuming local redis is running as per other tests)
-    // We'll use a prefix or mock if possible, but integration test is better given the redis dependency.
-    let client = Client::open("redis://127.0.0.1/").unwrap();
-    let service = AccountLockoutService::new(client.clone());
+async fn test_account_lockout_logic() {
+    let client = redis::Client::open("redis://127.0.0.1/").expect("Failed to create Redis client");
+    
+    // Cleanup previous runs
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let _: () = conn.del("login_failures:testuser@example.com").await.unwrap();
+    let _: () = conn.del("lockout:testuser@example.com").await.unwrap();
+
+    let service = AccountLockoutService::new(client.clone(), create_circuit_breaker());
 
     let email = "victim@example.com";
     let attacker_ip = "192.168.1.666";

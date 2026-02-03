@@ -226,7 +226,7 @@ pub async fn google_callback(
     let token_service =
         JwtTokenService::new(tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
 
     let service = GoogleFederationService::new(
         identity_repo,
