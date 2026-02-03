@@ -1,7 +1,7 @@
 # Federation bounded context
 
 ## Visión general
-`iam::federation` encapsula la autenticación federada con Google. Su objetivo es permitir que un usuario inicie sesión con Google y, si no existe, crear una identidad con proveedor `AuthProvider::Google`, sin manejar contraseñas en texto claro. Asegura la protección CSRF, la validación de tokens de Google y la transición segura de tokens (Google → backend → frontend).
+`iam::federation` encapsula la autenticación federada con Google. Su objetivo es permitir que un usuario inicie sesión con Google y, si no existe, crear una identidad con proveedor `AuthProvider::Google`, sin manejar contraseñas en texto claro. Asegura la protección CSRF, la validación de tokens de Google y la transición segura de tokens (Google → backend → frontend) usando un `state` firmado (JWT) que incluye `tenant_id`, `iat`, `nonce` y `exp`.
 
 Depende de:
 
@@ -13,13 +13,15 @@ Depende de:
 ## Endpoints
 
 ### `GET /api/v1/auth/google`
+- **Requiere `anon_key` (tenant auth)** porque usa `tenant_ctx` para resolver `google_client_id/secret`.
 - Construye la URL de autorización con `client_id`, `redirect_uri`, `scope`, `access_type=offline` y `prompt=consent`.
-- Genera `state` anti-CSRF, lo guarda en cookie segura (`oauth_state`), y redirige a Google.
-- Consejo: el frontend muestra una pantalla de “Redirigiendo a Google” antes del redirect automático.
+- Genera `state` **firmado (JWT)** con `tenant_id`, `iat`, `nonce`, `exp` (10 min) y redirige a Google.
+- Consejo: inicia este flujo desde un backend/route intermedia en tu frontend que pueda enviar el header `anon_key`.
 
 ### `GET /api/v1/auth/google/callback`
-- Valida el `state` comparando query y cookie. Si falla, redirige a `FRONTEND_URL/login?error=csrf_error`.
-- Usa el `tenant_ctx` para obtener `google_client_id/secret`.
+- **Ruta pública** (no pasa por `tenant_resolver`).
+- Valida el `state` **firmado** (JWT). Si falla, redirige a `FRONTEND_URL/login?error=csrf_error`.
+- Extrae `tenant_id` del `state`, carga el tenant desde Postgres y usa su config OAuth.
 - Instancia `GoogleOAuthClient` y llama a `exchange_code` (circuit breaker). Si falla, escribe error y redirige con detalle.
 - Si ya existe identidad con ese email pero distinto proveedor, falla con `ProviderMismatch`.
 - Si no existe, crea la identidad con contraseña placeholder y provider Google.
@@ -41,8 +43,8 @@ Depende de:
 
 ## Flujo en el frontend
 
-1. El usuario clickea “Continuar con Google” → Frontend hace GET `/api/v1/auth/google`.
-2. Google redirige a `/api/v1/auth/google/callback` en el backend (ya con `state` cookie).
+1. El usuario clickea “Continuar con Google” → Frontend hace GET `/api/v1/auth/google` **con `anon_key`** (por ejemplo vía route intermedia).
+2. Google redirige a `/api/v1/auth/google/callback` en el backend (con `state` firmado).
 3. Backend, tras obtener tokens Google, redirige a `FRONTEND_URL/auth/google/callback?code=<código efímero>`.
 4. Frontend POST `/api/v1/auth/google/claim` con ese `code`.
 5. Backend responde con `{ token, refresh_token }` que el frontend usa igual que el login estándar.

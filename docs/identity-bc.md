@@ -35,7 +35,7 @@ El contexto depende de:
   3. Persiste en Postgres dentro del esquema del tenant (con `SET LOCAL search_path`).
   4. Borra el token en Redis.
   5. Redirige a `FRONTEND_URL/email-verified?success=true` o a la ruta de error con mensaje.
-- **Seguridad**: usa el valor `FRONTEND_URL` configurado para construir las redirecciones; falla con 302 y mensaje codificado en caso de token inválido o servicio no disponible.
+- **Seguridad**: requiere `anon_key` (tenant auth). El link del email apunta al **frontend** (`FRONTEND_URL/verify?token=...`), y desde ahí el frontend debe llamar al backend con headers para completar la confirmación. Usa el valor `FRONTEND_URL` configurado para construir las redirecciones; falla con 302 y mensaje codificado en caso de token inválido o servicio no disponible.
 
 ### `POST /api/v1/identity/forgot-password`
 - **Recurso**: `RequestPasswordResetRequest { email }`.
@@ -93,7 +93,7 @@ El contexto depende de:
 ## Flujo recomendado (mapa rápido)
 
 1. **Registrar** → `POST /api/v1/auth/sign-up` → `RegisterIdentityResponse`.
-2. **Confirmar** → abrir link de correo → `GET /api/v1/identity/confirm-registration?token=...` → redirect a frontend.
+2. **Confirmar** → abrir link de correo (frontend) → frontend llama `GET /api/v1/identity/confirm-registration?token=...` **con headers** → redirect a frontend.
 3. **Login** → `POST /api/v1/auth/sign-in` → guardar `token` + `refresh_token`.
 4. **Reset**: `POST /api/v1/identity/forgot-password` → correo → `POST /api/v1/identity/reset-password`.
 
@@ -134,6 +134,8 @@ GET /api/v1/identity/confirm-registration?token=abc123
 **Comportamiento**
 - `302` a `FRONTEND_URL/email-verified?success=true` al confirmar.
 - `302` a `/email-verification-failed` con `error=invalid_token` o `error=service_unavailable`.
+**Nota**
+- Este endpoint requiere `anon_key` en headers; llámalo desde tu frontend (o una route intermedia) para poder adjuntar el header. No abras el backend directamente desde el navegador.
 
 ### Reset de contraseña
 **Request**

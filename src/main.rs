@@ -112,7 +112,6 @@ async fn main() {
         .route("/api/v1/auth/refresh-token", post(iam::authentication::interfaces::rest::controllers::authentication_controller::refresh_token))
         .route("/api/v1/auth/verify", get(iam::authentication::interfaces::rest::controllers::authentication_controller::verify_token))
         .route("/api/v1/auth/google", get(iam::federation::interfaces::rest::controllers::google_controller::redirect_to_google))
-        .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         .route("/api/v1/auth/google/claim", post(iam::federation::interfaces::rest::controllers::google_controller::claim_token))
         .route("/api/v1/identity/confirm-registration", get(iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration))
         .route("/api/v1/identity/forgot-password", post(iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset))
@@ -121,6 +120,8 @@ async fn main() {
 
     let app = Router::new()
         .merge(tenant_aware_routes)
+        // Public / Tenant-Agnostic Routes
+        .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         // Tenancy Routes
         .route("/api/v1/tenants", post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant))
         .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant))
