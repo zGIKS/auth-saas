@@ -91,8 +91,8 @@ pub async fn register_identity(
                 .into_response();
         }
     };
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     // Messaging / Email Service Construction
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
@@ -110,7 +110,7 @@ pub async fn register_identity(
 
     // Session Invalidation Service
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
@@ -213,8 +213,8 @@ pub async fn confirm_registration(
             return Redirect::to(&error_url).into_response();
         }
     };
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -237,7 +237,7 @@ pub async fn confirm_registration(
 
     // Session Invalidation Service
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
@@ -324,8 +324,8 @@ pub async fn request_password_reset(
                 .into_response();
         }
     };
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -342,7 +342,7 @@ pub async fn request_password_reset(
 
     // Session Invalidation Service
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
@@ -414,8 +414,8 @@ pub async fn reset_password(
                 .into_response();
         }
     };
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -432,7 +432,7 @@ pub async fn reset_password(
 
     // Session Invalidation Service
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);

@@ -81,8 +81,8 @@ pub async fn signin(
     let token_service =
         JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
-    let lockout_service = AccountLockoutService::new(state.redis.clone());
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let lockout_service = AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -151,8 +151,8 @@ pub async fn logout(
     let token_service =
         JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
-    let lockout_service = AccountLockoutService::new(state.redis.clone());
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let lockout_service = AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -214,8 +214,8 @@ pub async fn refresh_token(
     let token_service =
         JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
-    let lockout_service = AccountLockoutService::new(state.redis.clone());
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let lockout_service = AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -274,7 +274,7 @@ pub async fn verify_token(
     let token_service =
         JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
 
     let service = AuthenticationQueryServiceImpl::new(token_service, session_repo);
 

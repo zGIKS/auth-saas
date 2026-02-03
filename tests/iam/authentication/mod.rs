@@ -8,6 +8,8 @@ mod integration_tests;
 mod refresh_token_tests;
 mod signin_command_tests;
 mod token_tests;
+mod circuit_breaker_integration_tests;
+mod session_cb_tests;
 
 // Legacy test files (keep for backwards compatibility)
 pub mod infrastructure_tests;
