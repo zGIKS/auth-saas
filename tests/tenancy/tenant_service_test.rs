@@ -8,7 +8,7 @@ use auth_service::tenancy::domain::{
     model::{
         tenant::Tenant,
         value_objects::{tenant_id::TenantId, tenant_name::TenantName, db_strategy::DbStrategy, auth_config::AuthConfig},
-        commands::create_tenant_command::{CreateTenantCommand, StrategyTypeInput},
+        commands::create_tenant_command::CreateTenantCommand,
     },
     repositories::tenant_repository::TenantRepository,
     services::tenant_command_service::TenantCommandService,
@@ -46,7 +46,7 @@ async fn test_create_tenant_success() {
 
     let command = CreateTenantCommand::new(
         "test-project".to_string(),
-        StrategyTypeInput::Shared,
+        "postgres://tenant_test_project".to_string(),
         None,
         None,
     ).expect("Command should be valid");
@@ -57,10 +57,10 @@ async fn test_create_tenant_success() {
     let (tenant, key) = result.unwrap();
     
     assert_eq!(tenant.name.value(), "test-project");
-    // Verify Schema Name generation logic
     match tenant.db_strategy {
-        DbStrategy::Shared { schema } => assert_eq!(schema, "tenant_test_project"),
-        _ => panic!("Expected Shared strategy"),
+        DbStrategy::Isolated { connection_string } => {
+            assert_eq!(connection_string, "postgres://tenant_test_project");
+        }
     }
     // Verify Key is not empty
     assert!(!key.is_empty());
@@ -79,7 +79,7 @@ async fn test_create_tenant_already_exists() {
              Ok(Some(Tenant::new(
                 TenantId::random(),
                 name.clone(),
-                DbStrategy::default(),
+                DbStrategy::Isolated { connection_string: "postgres://existing_tenant".to_string() },
                 AuthConfig::new(
                     "dummy_secret_also_needs_to_be_long_123456789".to_string(), 
                     None, 
@@ -95,7 +95,7 @@ async fn test_create_tenant_already_exists() {
 
     let command = CreateTenantCommand::new(
         "existing-project".to_string(),
-        StrategyTypeInput::Shared,
+        "postgres://existing_project".to_string(),
         None,
         None,
     ).expect("Command should be valid");
@@ -114,7 +114,7 @@ async fn test_create_tenant_fails_with_invalid_name() {
     // This logic is mostly in the Command creation, but good to verify
     let result = CreateTenantCommand::new(
         "Invalid Name Here".to_string(), // Spaces not allowed
-        StrategyTypeInput::Shared,
+        "postgres://invalid_name".to_string(),
         None,
         None,
     );
@@ -146,7 +146,7 @@ async fn test_security_generated_jwt_structure() {
     
     let command = CreateTenantCommand::new(
         "secure-app".to_string(),
-        StrategyTypeInput::Shared,
+        "postgres://secure_app".to_string(),
         None,
         None,
     ).unwrap();
@@ -173,29 +173,21 @@ async fn test_security_generated_jwt_structure() {
 }
 
 #[tokio::test]
-async fn test_integrity_schema_sanitization() {
+async fn test_rejects_empty_connection_string() {
     let mut mock_repo = MockTenantRepository::new();
     mock_repo.expect_find_by_name().returning(|_| Ok(None));
     mock_repo.expect_save().returning(Ok);
 
-    let service = TenantCommandServiceImpl::new(mock_repo, "secret".to_string());
-
-    // Input: Name with dashes (typical URL friendly name)
     let command = CreateTenantCommand::new(
-        "my-awesome-saas".to_string(), 
-        StrategyTypeInput::Shared,
+        "my-awesome-saas".to_string(),
+        "   ".to_string(),
         None,
         None,
-    ).unwrap();
+    );
 
-    let (tenant, _) = service.create_tenant(command).await.unwrap();
-
-    // Verify Sanitization: Dashes -> Underscores, Prefix added
-    // This protects against SQL syntax issues in schema names
-    match tenant.db_strategy {
-        DbStrategy::Shared { schema } => {
-            assert_eq!(schema, "tenant_my_awesome_saas");
-        },
-        _ => panic!("Strategy incorrect"),
+    assert!(command.is_err(), "Should fail due to empty connection string");
+    match command.unwrap_err() {
+        TenantError::InvalidDbConnection(_) => (),
+        _ => panic!("Expected InvalidDbConnection error"),
     }
 }

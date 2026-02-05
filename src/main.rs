@@ -72,6 +72,10 @@ async fn main() {
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
 
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+    let rate_limit_exempt_swagger: bool = std::env::var("RATE_LIMIT_EXEMPT_SWAGGER")
+        .unwrap_or_else(|_| "true".to_string())
+        .parse()
+        .expect("RATE_LIMIT_EXEMPT_SWAGGER must be true or false");
 
     // Initialize database schema
     // Only create the tenants table in public schema (metadata)
@@ -102,6 +106,7 @@ async fn main() {
         lockout_duration_seconds,
         google_redirect_uri,
         jwt_secret,
+        rate_limit_exempt_swagger,
         circuit_breaker: create_circuit_breaker(),
     };
 

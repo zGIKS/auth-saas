@@ -32,6 +32,7 @@ use crate::shared::interfaces::rest::app_state::AppState;
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
 use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
+use sea_orm::{Database, DatabaseConnection};
 
 use axum::{
     extract::{ConnectInfo, Extension, Json, Query, State},
@@ -66,16 +67,11 @@ pub async fn signin(
     // Extract IP from ConnectInfo
     let ip_address = Some(addr.ip().to_string());
 
-    // Get schema from tenant's DB strategy
-    let identity_repo = match &tenant_ctx.tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
-        DbStrategy::Isolated { .. } => {
-            tracing::error!("Isolated DB strategy is not yet implemented");
-            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
-                .with_code(501)
-                .into_response();
-        }
+    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(resp) => return resp.into_response(),
     };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     // Use tenant-specific JWT secret instead of global one
     let token_service =
@@ -136,16 +132,11 @@ pub async fn logout(
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    // Get schema from tenant's DB strategy
-    let identity_repo = match &tenant_ctx.tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
-        DbStrategy::Isolated { .. } => {
-            tracing::error!("Isolated DB strategy is not yet implemented");
-            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
-                .with_code(501)
-                .into_response();
-        }
+    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(resp) => return resp.into_response(),
     };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     // Use tenant-specific JWT secret instead of global one
     let token_service =
@@ -199,16 +190,11 @@ pub async fn refresh_token(
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    // Get schema from tenant's DB strategy
-    let identity_repo = match &tenant_ctx.tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
-        DbStrategy::Isolated { .. } => {
-            tracing::error!("Isolated DB strategy is not yet implemented");
-            return ErrorResponse::new("Configuration error: Isolated DB strategy not supported")
-                .with_code(501)
-                .into_response();
-        }
+    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(resp) => return resp.into_response(),
     };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     // Use tenant-specific JWT secret instead of global one
     let token_service =
@@ -301,5 +287,18 @@ pub async fn verify_token(
             )
                 .into_response()
         }
+    }
+}
+
+async fn resolve_tenant_db(
+    db_strategy: &DbStrategy,
+) -> Result<DatabaseConnection, ErrorResponse> {
+    match db_strategy {
+        DbStrategy::Isolated { connection_string } => Database::connect(connection_string)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to connect to tenant database: {}", e);
+                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+            }),
     }
 }

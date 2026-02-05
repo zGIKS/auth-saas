@@ -37,6 +37,7 @@ use crate::tenancy::domain::{
     repositories::tenant_repository::TenantRepository,
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use sea_orm::{Database, DatabaseConnection};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StateClaims {
@@ -208,19 +209,18 @@ pub async fn google_callback(
         state.circuit_breaker.clone(),
     );
 
-    // Get schema from tenant's DB strategy
-    let identity_repo = match &tenant.db_strategy {
-        DbStrategy::Shared { schema } => IdentityRepositoryImpl::new(state.db.clone(), schema.clone()),
-        DbStrategy::Isolated { .. } => {
-            tracing::error!("Isolated strategy not implemented in Google Callback");
-             let redirect_url = format!(
+    let tenant_db = match resolve_tenant_db(&tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(_) => {
+            let redirect_url = format!(
                 "{}/login?error=internal_error&message={}",
                 frontend_url,
-                urlencoding::encode("Configuration Error: Isolated DB not supported")
+                urlencoding::encode("Configuration Error")
             );
             return Redirect::to(&redirect_url).into_response();
         }
     };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
 
     // Use tenant-specific JWT secret
     let token_service =
@@ -328,5 +328,18 @@ pub async fn claim_token(
             tracing::error!("Failed to claim exchange token: {:?}", e);
             ErrorResponse::internal_error().into_response()
         }
+    }
+}
+
+async fn resolve_tenant_db(
+    db_strategy: &DbStrategy,
+) -> Result<DatabaseConnection, ErrorResponse> {
+    match db_strategy {
+        DbStrategy::Isolated { connection_string } => Database::connect(connection_string)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to connect to tenant database: {}", e);
+                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+            }),
     }
 }

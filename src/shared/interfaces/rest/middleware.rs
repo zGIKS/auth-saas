@@ -63,6 +63,14 @@ pub async fn rate_limit_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
+    // Allow Swagger UI and OpenAPI docs without rate limiting to avoid
+    // bursts of asset/document requests in local/dev usage.
+    if state.rate_limit_exempt_swagger
+        && (path.starts_with("/swagger-ui") || path.starts_with("/api-docs"))
+    {
+        return Ok(next.run(req).await);
+    }
+
     // Global IP Limit: 20 req/sec
     let global_key = format!("rl:ip:{}", ip);
     // limit=20, rate=20.0 (20 tokens/sec)

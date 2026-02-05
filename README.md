@@ -4,7 +4,7 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
 
 ## Características principales
 
-- Configuración multi-tenant con estrategias `shared` / `isolated` y claves `anon_key`.
+- Configuración multi-tenant con estrategia `isolated` y claves `anon_key`.
 - Registro, verificación de email, login, refresh/logout, recuperación de contraseña y Google OAuth.
 - Redis para sesiones, refresh tokens, rate limiting y lockout.
 - Circuit breaker y mensajería SMTP para notificaciones seguras.
@@ -59,7 +59,7 @@ Los documentos en `docs/` explican cada módulo con visión general, endpoints, 
 
 - `identity-bc.md`: registro/confirmación, reset, envío de correos, interacción con Redis y lockout.
 - `auth-bc.md`: login, refresh, logout, verificación de JWT y Google OAuth (incluye ejemplos de request/respuesta).
-- `tenancy-bc.md`: creación de tenants, estrategias de DB, generación de `anon_key`.
+- `tenancy-bc.md`: creación de tenants, estrategia de DB aislada, generación de `anon_key`.
 - `federation-bc.md`: flujo completo de Google OAuth, CSRF y tokens temporales.
 - `messaging-bc.md`: pipeline de mensajería, circuit breaker y configuración SMTP.
 - `shared-bc.md`: AppState, middleware, rate limiter, circuit breaker y modelos auditables comunes.

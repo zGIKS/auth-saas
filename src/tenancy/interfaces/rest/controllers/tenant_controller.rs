@@ -26,14 +26,10 @@ use crate::tenancy::application::{
     query_services::tenant_query_service_impl::TenantQueryServiceImpl,
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
-use crate::tenancy::infrastructure::schema_initializer;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     tenant_resource::TenantResource,
-    strategy_type::StrategyType,
 };
-use crate::tenancy::domain::model::commands::create_tenant_command::StrategyTypeInput;
-use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 
 #[derive(Debug, Serialize)]
 struct Claims {
@@ -64,11 +60,7 @@ pub async fn create_tenant(
 
     let command = match CreateTenantCommand::new(
         payload.name,
-        // Map DTO Enum to Domain Enum
-        match payload.db_strategy_type {
-            StrategyType::Shared => StrategyTypeInput::Shared,
-            StrategyType::Isolated => StrategyTypeInput::Isolated,
-        },
+        payload.db_connection_string,
         payload.google_client_id,
         payload.google_client_secret,
     ) {
@@ -81,19 +73,6 @@ pub async fn create_tenant(
 
     match service.create_tenant(command).await {
         Ok((tenant, anon_key)) => {
-            // Initialize tenant schema if using Shared DB strategy
-            if let DbStrategy::Shared { ref schema } = tenant.db_strategy {
-                match schema_initializer::initialize_tenant_schema(&state.db, schema).await {
-                    Ok(_) => tracing::info!("Schema '{}' initialized for tenant '{}'", schema, tenant.name.value()),
-                    Err(e) => {
-                        tracing::error!("Failed to initialize schema '{}': {}", schema, e);
-                        return ErrorResponse::new("Tenant created but schema initialization failed")
-                            .with_code(500)
-                            .into_response();
-                    }
-                }
-            }
-            
             let response = CreateTenantResponse {
                 id: tenant.id.to_string(),
                 anon_key,
@@ -104,7 +83,9 @@ pub async fn create_tenant(
             TenantError::AlreadyExists => ErrorResponse::new("Tenant already exists")
                 .with_code(409)
                 .into_response(),
-            TenantError::InvalidName(msg) | TenantError::InvalidAuthConfig(msg) => {
+            TenantError::InvalidName(msg)
+            | TenantError::InvalidAuthConfig(msg)
+            | TenantError::InvalidDbConnection(msg) => {
                 ErrorResponse::new(&msg).with_code(400).into_response()
             }
             _ => {
