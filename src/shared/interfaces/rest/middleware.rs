@@ -6,6 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use redis::AsyncCommands;
 use std::net::SocketAddr;
 
 pub async fn rate_limit_middleware(
@@ -76,6 +77,12 @@ pub async fn rate_limit_middleware(
     };
     let (limit, rate) = if is_swagger { (20, 20.0) } else { (3, 3.0) };
 
+    // Temporary ban for abusive IPs (seconds)
+    let ban_key = format!("rl:ban:ip:{}", ip);
+    if is_ip_banned(&state.redis, &ban_key).await {
+        return Err(StatusCode::TOO_MANY_REQUESTS);
+    }
+
     match limiter.check(&global_key, limit, rate, 1).await {
         Ok(_) => {}
         Err(RateLimitError::Exceeded(retry_ms)) => {
@@ -85,6 +92,8 @@ pub async fn rate_limit_middleware(
                 path,
                 retry_ms
             );
+            // Ban IP for 60 seconds after global limit breach
+            let _ = ban_ip(&state.redis, &ban_key, 60).await;
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
         Err(err) => {
@@ -178,4 +187,27 @@ pub async fn rate_limit_middleware(
     }
 
     Ok(next.run(req).await)
+}
+
+async fn is_ip_banned(client: &redis::Client, key: &str) -> bool {
+    if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
+        let exists: Result<bool, _> = conn.exists(key).await;
+        return exists.unwrap_or(false);
+    }
+    false
+}
+
+async fn ban_ip(client: &redis::Client, key: &str, ttl_seconds: u64) -> bool {
+    if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
+        let set_result: Result<(), _> = redis::cmd("SET")
+            .arg(key)
+            .arg("1")
+            .arg("EX")
+            .arg(ttl_seconds)
+            .arg("NX")
+            .query_async(&mut conn)
+            .await;
+        return set_result.is_ok();
+    }
+    false
 }
