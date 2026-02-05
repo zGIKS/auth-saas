@@ -2,6 +2,8 @@ use redis::Client;
 use sea_orm::DatabaseConnection;
 
 use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
+use crate::shared::infrastructure::services::docker_provisioner::DockerProvisioner;
+use crate::shared::infrastructure::services::vault_client::VaultClient;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -18,6 +20,8 @@ pub struct AppState {
     pub jwt_secret: String,
     pub rate_limit_exempt_swagger: bool,
     pub circuit_breaker: AppCircuitBreaker,
+    pub vault: VaultClient,
+    pub docker: DockerProvisioner,
 }
 
 impl axum::extract::FromRef<AppState> for DatabaseConnection {

@@ -209,7 +209,7 @@ pub async fn google_callback(
         state.circuit_breaker.clone(),
     );
 
-    let tenant_db = match resolve_tenant_db(&tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant.db_strategy).await {
         Ok(db) => db,
         Err(_) => {
             let redirect_url = format!(
@@ -332,14 +332,24 @@ pub async fn claim_token(
 }
 
 async fn resolve_tenant_db(
+    state: &AppState,
     db_strategy: &DbStrategy,
 ) -> Result<DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Isolated { connection_string } => Database::connect(connection_string)
-            .await
-            .map_err(|e| {
+        DbStrategy::Isolated { db_secret_path } => {
+            let connection_string = state
+                .vault
+                .read_db_connection_string(db_secret_path)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to read tenant DB secret: {}", e);
+                    ErrorResponse::new("Failed to read tenant DB secret").with_code(500)
+                })?;
+
+            Database::connect(&connection_string).await.map_err(|e| {
                 tracing::error!("Failed to connect to tenant database: {}", e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            }),
+            })
+        }
     }
 }

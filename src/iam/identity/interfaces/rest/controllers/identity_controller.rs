@@ -82,7 +82,7 @@ pub async fn register_identity(
 
     let command = RegisterIdentityCommand::new(email, password, provider);
 
-    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
         Err(resp) => return resp.into_response(),
     };
@@ -196,9 +196,9 @@ pub async fn confirm_registration(
     // Use existing command for backward compatibility
     let command = ConfirmRegistrationCommand::new(query.token);
 
-    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
-        Err(resp) => {
+        Err(_resp) => {
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
                 state.frontend_url.as_deref().unwrap_or("http://localhost:3000"),
@@ -309,7 +309,7 @@ pub async fn request_password_reset(
 
     let command = RequestPasswordResetCommand::new(email);
 
-    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
         Err(resp) => return resp.into_response(),
     };
@@ -394,7 +394,7 @@ pub async fn reset_password(
 
     let command = ResetPasswordCommand::new(payload.token, new_password);
 
-    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
         Err(resp) => return resp.into_response(),
     };
@@ -454,14 +454,24 @@ pub async fn reset_password(
 }
 
 async fn resolve_tenant_db(
+    state: &AppState,
     db_strategy: &DbStrategy,
 ) -> Result<DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Isolated { connection_string } => Database::connect(connection_string)
-            .await
-            .map_err(|e| {
+        DbStrategy::Isolated { db_secret_path } => {
+            let connection_string = state
+                .vault
+                .read_db_connection_string(db_secret_path)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to read tenant DB secret: {}", e);
+                    ErrorResponse::new("Failed to read tenant DB secret").with_code(500)
+                })?;
+
+            Database::connect(&connection_string).await.map_err(|e| {
                 tracing::error!("Failed to connect to tenant database: {}", e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            }),
+            })
+        }
     }
 }

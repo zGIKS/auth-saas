@@ -12,14 +12,15 @@ Depende de:
 ## Endpoints del contexto
 
 ### `POST /api/v1/tenants`
-- **Recurso**: `CreateTenantRequest { name, db_connection_string, google_client_id?, google_client_secret? }`.
+- **Recurso**: `CreateTenantRequest { name, google_client_id?, google_client_secret? }`.
 - **Validaciones**:
   - `name` alfanumérico/hyphen/underscore (3-30).
-  - `db_connection_string` no vacío.
 - **Flujo**:
-  1. `CreateTenantCommand::new` valida el nombre, valida `db_connection_string`, genera `TenantName`, construye estrategia aislada, genera JWT secret (128 hex chars) y crea `AuthConfig`.
-  2. `TenantCommandServiceImpl` valida unicidad y guarda el tenant con `TenantRepository`.
-  3. Devuelve `CreateTenantResponse { id, anon_key }`, donde `anon_key` es un JWT firmado con el secret global del backend (`state.jwt_secret`) con claims `{ iss: "saas-system", tenant_id, role: "anon" }`.
+  1. El controlador crea un contenedor de base de datos aislada (Docker) para el tenant.
+  2. Guarda el `db_connection_string` en Vault y genera `db_secret_path`.
+  3. `CreateTenantCommand::new` valida el nombre, valida `db_secret_path`, genera `TenantName`, construye estrategia aislada, genera JWT secret (128 hex chars) y crea `AuthConfig`.
+  4. `TenantCommandServiceImpl` valida unicidad y guarda el tenant con `TenantRepository`.
+  5. Devuelve `CreateTenantResponse { id, anon_key }`, donde `anon_key` es un JWT firmado con el secret global del backend (`state.jwt_secret`) con claims `{ iss: "saas-system", tenant_id, role: "anon" }`.
 - **Errores**: 400 (validación), 409 (tenant ya existe), 500 (fallos de infraestructura).
 
 ### `GET /api/v1/tenants/{id}`
@@ -31,7 +32,7 @@ Depende de:
 
 ## Estrategia de base de datos
 
-- **Isolated**: cada tenant apunta a su propia base de datos mediante `connection_string`. La capa de identidad usa una conexión independiente por tenant.
+- **Isolated**: cada tenant apunta a su propia base de datos mediante un `db_secret_path` guardado en Vault. La capa de identidad lee el secreto en runtime y abre una conexión independiente por tenant.
 
 ## Configuración y secretos
 
@@ -42,7 +43,7 @@ Depende de:
 
 ## Flujo común para nuevos tenants
 
-1. **Crear** → `POST /api/v1/tenants` con nombre y `db_connection_string`.
+1. **Crear** → `POST /api/v1/tenants` con nombre; el backend crea el DB container y guarda el secreto en Vault.
 2. **Consumir** → Frontend almacena `anon_key` del response y lo adjunta en headers (`apikey`/`Authorization`) para resolver el tenant. Luego puede usar `/auth` y `/identity` dentro del contexto resuelto.
 
 ## Referencias de código

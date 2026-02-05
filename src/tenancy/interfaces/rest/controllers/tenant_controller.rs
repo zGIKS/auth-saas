@@ -58,14 +58,42 @@ pub async fn create_tenant(
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
 
+    let provisioned = match state.docker.create_tenant_db(&payload.name).await {
+        Ok(db) => db,
+        Err(e) => {
+            tracing::error!("Failed to provision tenant DB: {}", e);
+            return ErrorResponse::new("Failed to provision tenant database")
+                .with_code(500)
+                .into_response();
+        }
+    };
+
+    let secret_path = format!("tenants/{}/db", payload.name);
+
+    if let Err(e) = state
+        .vault
+        .write_db_connection_string(&secret_path, &provisioned.connection_string)
+        .await
+    {
+        tracing::error!("Failed to write tenant DB secret to Vault: {}", e);
+        let _ = state.docker.remove_container(&provisioned.container_id).await;
+        return ErrorResponse::new("Failed to store tenant DB secret")
+            .with_code(500)
+            .into_response();
+    }
+
     let command = match CreateTenantCommand::new(
         payload.name,
-        payload.db_connection_string,
+        secret_path.clone(),
         payload.google_client_id,
         payload.google_client_secret,
     ) {
         Ok(cmd) => cmd,
-        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+        Err(e) => {
+            let _ = state.vault.delete_secret_path(&secret_path).await;
+            let _ = state.docker.remove_container(&provisioned.container_id).await;
+            return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
+        }
     };
 
     let repository = PostgresTenantRepository::new(state.db.clone());
@@ -79,20 +107,24 @@ pub async fn create_tenant(
             };
             (StatusCode::CREATED, Json(response)).into_response()
         }
-        Err(e) => match e {
+        Err(e) => {
+            let _ = state.vault.delete_secret_path(&secret_path).await;
+            let _ = state.docker.remove_container(&provisioned.container_id).await;
+            match e {
             TenantError::AlreadyExists => ErrorResponse::new("Tenant already exists")
                 .with_code(409)
                 .into_response(),
             TenantError::InvalidName(msg)
             | TenantError::InvalidAuthConfig(msg)
-            | TenantError::InvalidDbConnection(msg) => {
+            | TenantError::InvalidDbSecretPath(msg) => {
                 ErrorResponse::new(&msg).with_code(400).into_response()
             }
             _ => {
                 tracing::error!("Create tenant error: {}", e);
                 ErrorResponse::internal_error().into_response()
             }
-        },
+            }
+        }
     }
 }
 

@@ -6,6 +6,6 @@ use utoipa::ToSchema;
 pub enum DbStrategy {
     #[serde(rename = "isolated")]
     Isolated {
-        connection_string: String,
+        db_secret_path: String,
     },
 }

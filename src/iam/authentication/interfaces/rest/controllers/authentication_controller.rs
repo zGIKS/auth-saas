@@ -67,7 +67,7 @@ pub async fn signin(
     // Extract IP from ConnectInfo
     let ip_address = Some(addr.ip().to_string());
 
-    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
         Err(resp) => return resp.into_response(),
     };
@@ -132,7 +132,7 @@ pub async fn logout(
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
         Err(resp) => return resp.into_response(),
     };
@@ -190,7 +190,7 @@ pub async fn refresh_token(
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    let tenant_db = match resolve_tenant_db(&tenant_ctx.tenant.db_strategy).await {
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
         Err(resp) => return resp.into_response(),
     };
@@ -291,14 +291,24 @@ pub async fn verify_token(
 }
 
 async fn resolve_tenant_db(
+    state: &AppState,
     db_strategy: &DbStrategy,
 ) -> Result<DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Isolated { connection_string } => Database::connect(connection_string)
-            .await
-            .map_err(|e| {
+        DbStrategy::Isolated { db_secret_path } => {
+            let connection_string = state
+                .vault
+                .read_db_connection_string(db_secret_path)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Failed to read tenant DB secret: {}", e);
+                    ErrorResponse::new("Failed to read tenant DB secret").with_code(500)
+                })?;
+
+            Database::connect(&connection_string).await.map_err(|e| {
                 tracing::error!("Failed to connect to tenant database: {}", e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            }),
+            })
+        }
     }
 }

@@ -16,20 +16,20 @@ pub struct CreateTenantCommand {
 impl CreateTenantCommand {
     pub fn new(
         name: String,
-        db_connection_string: String,
+        db_secret_path: String,
         google_client_id: Option<String>,
         google_client_secret: Option<String>,
     ) -> Result<Self, TenantError> {
         let name_vo = TenantName::new(name).map_err(TenantError::InvalidName)?;
         
-        let connection_string = db_connection_string.trim().to_string();
-        if connection_string.is_empty() {
-            return Err(TenantError::InvalidDbConnection(
-                "connection string cannot be empty".to_string(),
+        let secret_path = db_secret_path.trim().to_string();
+        if secret_path.is_empty() {
+            return Err(TenantError::InvalidDbSecretPath(
+                "secret path cannot be empty".to_string(),
             ));
         }
 
-        let db_strategy = DbStrategy::Isolated { connection_string };
+        let db_strategy = DbStrategy::Isolated { db_secret_path: secret_path };
 
         // Generate a secure random JWT secret (64 bytes = 512 bits)
         let jwt_secret = Self::generate_jwt_secret();
