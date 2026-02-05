@@ -39,7 +39,6 @@ Variables imprescindibles (usa `.env`):
 - `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`: rutas de callback y referencia para correos.
 - `SMTP_*`: servidor SMTP para correos transaccionales.
 - `LOCKOUT_THRESHOLD`, `LOCKOUT_DURATION_SECONDS`: control de bloqueo por intentos fallidos.
-- `RATE_LIMIT_DISABLED` (opcional): desactiva el rate limiter en desarrollo/local.
 - `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`: acceso a HashiCorp Vault (AppRole).
 - `VAULT_NAMESPACE` (opcional), `VAULT_KV_MOUNT` (opcional, default `secret`): configuración avanzada de Vault.
 - `TENANT_DB_IMAGE`, `TENANT_DB_NETWORK`, `TENANT_DB_HOST`: configuración de contenedores DB por tenant.

@@ -1,4 +1,4 @@
-use crate::shared::infrastructure::services::rate_limiter::RedisRateLimiter;
+use crate::shared::infrastructure::services::rate_limiter::{RateLimitError, RedisRateLimiter};
 use crate::shared::interfaces::rest::app_state::AppState;
 use axum::{
     extract::{ConnectInfo, Request, State},
@@ -63,45 +63,65 @@ pub async fn rate_limit_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
-    // Allow disabling rate limiter entirely (dev/local).
-    if state.rate_limit_disabled {
-        return Ok(next.run(req).await);
-    }
-
-    // Allow Swagger UI and OpenAPI docs without rate limiting to avoid
-    // bursts of asset/document requests in local/dev usage.
-    if state.rate_limit_exempt_swagger
-        && (path.starts_with("/swagger-ui") || path.starts_with("/api-docs"))
-    {
-        return Ok(next.run(req).await);
-    }
-
-    // Allow tenant bootstrap endpoints without rate limiting to avoid
-    // blocking provisioning flows.
-    if path.starts_with("/api/v1/tenants") {
-        return Ok(next.run(req).await);
-    }
-
     // Global IP Limit: 20 req/sec
     let global_key = format!("rl:ip:{}", ip);
     // limit=20, rate=20.0 (20 tokens/sec)
-    if (limiter.check(&global_key, 20, 20.0, 1).await).is_err() {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
+    match limiter.check(&global_key, 20, 20.0, 1).await {
+        Ok(_) => {}
+        Err(RateLimitError::Exceeded(retry_ms)) => {
+            tracing::warn!(
+                "Rate limit exceeded (global): ip={} path={} retry_ms={}",
+                ip,
+                path,
+                retry_ms
+            );
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+        Err(err) => {
+            tracing::error!("Rate limiter error (global): {}", err);
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
     }
 
     // Sign-in limit: 5 req/min per IP
     if path.contains("/auth/sign-in") && method == Method::POST {
         let path_key = format!("rl:signin:ip:{}", ip);
-        if (limiter.check(&path_key, 5, 0.0833, 1).await).is_err() {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+        match limiter.check(&path_key, 5, 0.0833, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (signin): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (signin): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
         }
     }
 
     // Forgot Password limit: 3 req/min per IP
     if path.contains("/identity/forgot-password") && method == Method::POST {
         let path_key = format!("rl:forgot:ip:{}", ip);
-        if (limiter.check(&path_key, 3, 0.05, 1).await).is_err() {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+        match limiter.check(&path_key, 3, 0.05, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (forgot password): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (forgot password): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
         }
     }
 

@@ -36,7 +36,9 @@ async fn main() {
         .await
         .expect("Failed to connect to DB");
 
-    let redis_client = redis_infra::connect().await;
+    let redis_client = redis_infra::connect()
+        .await
+        .expect("Failed to connect to Redis");
 
     let session_duration_seconds: u64 = std::env::var("SESSION_DURATION_SECONDS")
         .expect("SESSION_DURATION_SECONDS must be set")
@@ -74,14 +76,6 @@ async fn main() {
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
 
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
-    let rate_limit_exempt_swagger: bool = std::env::var("RATE_LIMIT_EXEMPT_SWAGGER")
-        .unwrap_or_else(|_| "true".to_string())
-        .parse()
-        .expect("RATE_LIMIT_EXEMPT_SWAGGER must be true or false");
-    let rate_limit_disabled: bool = std::env::var("RATE_LIMIT_DISABLED")
-        .unwrap_or_else(|_| "false".to_string())
-        .parse()
-        .expect("RATE_LIMIT_DISABLED must be true or false");
 
     let vault_addr = std::env::var("VAULT_ADDR").expect("VAULT_ADDR must be set");
     let vault_role_id = std::env::var("VAULT_ROLE_ID").expect("VAULT_ROLE_ID must be set");
@@ -146,8 +140,6 @@ async fn main() {
         lockout_duration_seconds,
         google_redirect_uri,
         jwt_secret,
-        rate_limit_exempt_swagger,
-        rate_limit_disabled,
         circuit_breaker: create_circuit_breaker(),
         vault: VaultClient::new(
             vault_addr,
