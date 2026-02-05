@@ -63,11 +63,22 @@ pub async fn rate_limit_middleware(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
 
+    // Allow disabling rate limiter entirely (dev/local).
+    if state.rate_limit_disabled {
+        return Ok(next.run(req).await);
+    }
+
     // Allow Swagger UI and OpenAPI docs without rate limiting to avoid
     // bursts of asset/document requests in local/dev usage.
     if state.rate_limit_exempt_swagger
         && (path.starts_with("/swagger-ui") || path.starts_with("/api-docs"))
     {
+        return Ok(next.run(req).await);
+    }
+
+    // Allow tenant bootstrap endpoints without rate limiting to avoid
+    // blocking provisioning flows.
+    if path.starts_with("/api/v1/tenants") {
         return Ok(next.run(req).await);
     }
 

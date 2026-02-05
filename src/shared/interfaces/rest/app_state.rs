@@ -19,6 +19,7 @@ pub struct AppState {
     pub google_redirect_uri: String,  // Fixed redirect URI for all tenants
     pub jwt_secret: String,
     pub rate_limit_exempt_swagger: bool,
+    pub rate_limit_disabled: bool,
     pub circuit_breaker: AppCircuitBreaker,
     pub vault: VaultClient,
     pub docker: DockerProvisioner,
