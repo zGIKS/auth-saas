@@ -17,10 +17,11 @@ Depende de:
   - `name` alfanumérico/hyphen/underscore (3-30).
 - **Flujo**:
   1. El controlador crea un contenedor de base de datos aislada (Docker) para el tenant.
-  2. Guarda el `db_connection_string` en Vault y genera `db_secret_path`.
-  3. `CreateTenantCommand::new` valida el nombre, valida `db_secret_path`, genera `TenantName`, construye estrategia aislada, genera JWT secret (128 hex chars) y crea `AuthConfig`.
-  4. `TenantCommandServiceImpl` valida unicidad y guarda el tenant con `TenantRepository`.
-  5. Devuelve `CreateTenantResponse { id, anon_key }`, donde `anon_key` es un JWT firmado con el secret global del backend (`state.jwt_secret`) con claims `{ iss: "saas-system", tenant_id, role: "anon" }`.
+  2. Inicializa la base del tenant (tabla `users`).
+  3. Guarda el `db_connection_string` en Vault y genera `db_secret_path`.
+  4. `CreateTenantCommand::new` valida el nombre, valida `db_secret_path`, genera `TenantName`, construye estrategia aislada, genera JWT secret (128 hex chars) y crea `AuthConfig`.
+  5. `TenantCommandServiceImpl` valida unicidad y guarda el tenant con `TenantRepository`.
+  6. Devuelve `CreateTenantResponse { id, anon_key }`, donde `anon_key` es un JWT firmado con el secret global del backend (`state.jwt_secret`) con claims `{ iss: "saas-system", tenant_id, role: "anon" }`.
 - **Errores**: 400 (validación), 409 (tenant ya existe), 500 (fallos de infraestructura).
 
 ### `GET /api/v1/tenants/{id}`

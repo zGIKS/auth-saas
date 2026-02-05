@@ -26,6 +26,7 @@ use crate::tenancy::application::{
     query_services::tenant_query_service_impl::TenantQueryServiceImpl,
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use crate::tenancy::infrastructure::tenant_db_initializer;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     tenant_resource::TenantResource,
@@ -67,6 +68,14 @@ pub async fn create_tenant(
                 .into_response();
         }
     };
+
+    if let Err(e) = tenant_db_initializer::initialize_tenant_db(&provisioned.connection_string).await {
+        tracing::error!("Failed to initialize tenant DB: {}", e);
+        let _ = state.docker.remove_container(&provisioned.container_id).await;
+        return ErrorResponse::new("Failed to initialize tenant database")
+            .with_code(500)
+            .into_response();
+    }
 
     let secret_path = format!("tenants/{}/db", payload.name);
 
