@@ -4,7 +4,7 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
 
 ## Características principales
 
-- Configuración multi-tenant con estrategias `shared` / `isolated` y claves `anon_key`.
+- Configuración multi-tenant con estrategia `isolated` y claves `anon_key`.
 - Registro, verificación de email, login, refresh/logout, recuperación de contraseña y Google OAuth.
 - Redis para sesiones, refresh tokens, rate limiting y lockout.
 - Circuit breaker y mensajería SMTP para notificaciones seguras.
@@ -36,9 +36,15 @@ Variables imprescindibles (usa `.env`):
 
 - `DATABASE_URL`, `REDIS_URL`: conexiones a Postgres y Redis.
 - `JWT_SECRET`, `SESSION_DURATION_SECONDS`, `REFRESH_TOKEN_DURATION_SECONDS`: seguridad de tokens.
+- `SWAGGER_ENABLED` (opcional): habilita o deshabilita Swagger en runtime.
 - `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`: rutas de callback y referencia para correos.
 - `SMTP_*`: servidor SMTP para correos transaccionales.
 - `LOCKOUT_THRESHOLD`, `LOCKOUT_DURATION_SECONDS`: control de bloqueo por intentos fallidos.
+- `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`: acceso a HashiCorp Vault (AppRole).
+- `VAULT_NAMESPACE` (opcional), `VAULT_KV_MOUNT` (opcional, default `secret`): configuración avanzada de Vault.
+- `TENANT_DB_IMAGE`, `TENANT_DB_NETWORK`, `TENANT_DB_HOST`: configuración de contenedores DB por tenant.
+- `TENANT_DB_USER`, `TENANT_DB_NAME_PREFIX`: credenciales base para DB aisladas.
+- `TENANT_DB_MEMORY_MB`, `TENANT_DB_CPU_CORES`: límites de recursos para mini‑dockers (opcional).
 
 Consulta `.env` para un set completo de ejemplo local.
 
@@ -59,7 +65,7 @@ Los documentos en `docs/` explican cada módulo con visión general, endpoints, 
 
 - `identity-bc.md`: registro/confirmación, reset, envío de correos, interacción con Redis y lockout.
 - `auth-bc.md`: login, refresh, logout, verificación de JWT y Google OAuth (incluye ejemplos de request/respuesta).
-- `tenancy-bc.md`: creación de tenants, estrategias de DB, generación de `anon_key`.
+- `tenancy-bc.md`: creación de tenants, estrategia de DB aislada, generación de `anon_key`.
 - `federation-bc.md`: flujo completo de Google OAuth, CSRF y tokens temporales.
 - `messaging-bc.md`: pipeline de mensajería, circuit breaker y configuración SMTP.
 - `shared-bc.md`: AppState, middleware, rate limiter, circuit breaker y modelos auditables comunes.

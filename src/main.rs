@@ -12,6 +12,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use auth_service::shared::infrastructure::persistence::redis as redis_infra;
+use auth_service::shared::infrastructure::services::docker_provisioner::DockerProvisioner;
+use auth_service::shared::infrastructure::services::vault_client::VaultClient;
 use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
 
 #[tokio::main]
@@ -34,7 +36,9 @@ async fn main() {
         .await
         .expect("Failed to connect to DB");
 
-    let redis_client = redis_infra::connect().await;
+    let redis_client = redis_infra::connect()
+        .await
+        .expect("Failed to connect to Redis");
 
     let session_duration_seconds: u64 = std::env::var("SESSION_DURATION_SECONDS")
         .expect("SESSION_DURATION_SECONDS must be set")
@@ -72,6 +76,44 @@ async fn main() {
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
 
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+    let swagger_enabled: bool = std::env::var("SWAGGER_ENABLED")
+        .unwrap_or_else(|_| "true".to_string())
+        .parse()
+        .expect("SWAGGER_ENABLED must be true or false");
+
+    let vault_addr = std::env::var("VAULT_ADDR").expect("VAULT_ADDR must be set");
+    let vault_role_id = std::env::var("VAULT_ROLE_ID").expect("VAULT_ROLE_ID must be set");
+    let vault_secret_id = std::env::var("VAULT_SECRET_ID").expect("VAULT_SECRET_ID must be set");
+    let vault_namespace = std::env::var("VAULT_NAMESPACE").ok();
+    let vault_kv_mount = std::env::var("VAULT_KV_MOUNT").unwrap_or_else(|_| "secret".to_string());
+
+    let tenant_db_image =
+        std::env::var("TENANT_DB_IMAGE").unwrap_or_else(|_| "postgres:16-alpine".to_string());
+    let tenant_db_network =
+        std::env::var("TENANT_DB_NETWORK").unwrap_or_else(|_| "auth-tenants".to_string());
+    let tenant_db_host =
+        std::env::var("TENANT_DB_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let tenant_db_user =
+        std::env::var("TENANT_DB_USER").unwrap_or_else(|_| "tenant_user".to_string());
+    let tenant_db_name_prefix =
+        std::env::var("TENANT_DB_NAME_PREFIX").unwrap_or_else(|_| "tenant_".to_string());
+    let tenant_db_memory_mb = std::env::var("TENANT_DB_MEMORY_MB")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok());
+    let tenant_db_cpu_cores = std::env::var("TENANT_DB_CPU_CORES")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok());
+
+    let docker_provisioner = DockerProvisioner::new(
+        tenant_db_image,
+        tenant_db_network,
+        tenant_db_host,
+        tenant_db_user,
+        tenant_db_name_prefix,
+        tenant_db_memory_mb,
+        tenant_db_cpu_cores,
+    )
+    .expect("Failed to initialize Docker provisioner");
 
     // Initialize database schema
     // Only create the tenants table in public schema (metadata)
@@ -102,7 +144,16 @@ async fn main() {
         lockout_duration_seconds,
         google_redirect_uri,
         jwt_secret,
+        swagger_enabled,
         circuit_breaker: create_circuit_breaker(),
+        vault: VaultClient::new(
+            vault_addr,
+            vault_role_id,
+            vault_secret_id,
+            vault_namespace,
+            vault_kv_mount,
+        ),
+        docker: docker_provisioner,
     };
 
     let tenant_aware_routes = Router::new()

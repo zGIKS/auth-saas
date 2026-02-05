@@ -17,28 +17,11 @@ use std::str::FromStr;
 
 pub struct IdentityRepositoryImpl {
     db: DatabaseConnection,
-    schema: String,
 }
 
 impl IdentityRepositoryImpl {
-    pub fn new(db: DatabaseConnection, schema: String) -> Self {
-        Self { db, schema }
-    }
-
-    /// Set the search_path LOCALLY within a transaction to isolate tenant data.
-    /// Uses SET LOCAL which automatically reverts when the transaction ends,
-    /// preventing connection pool contamination.
-    async fn set_search_path_in_txn(
-        &self,
-        txn: &DatabaseTransaction,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        // SET LOCAL only affects the current transaction and auto-reverts
-        let query = format!("SET LOCAL search_path TO {}", self.schema);
-        txn.execute(Statement::from_string(
-            DatabaseBackend::Postgres,
-            query
-        )).await?;
-        Ok(())
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
     }
 }
 
@@ -47,10 +30,6 @@ impl IdentityRepository for IdentityRepositoryImpl {
         &self,
         identity: DomainIdentity,
     ) -> Result<DomainIdentity, Box<dyn Error + Send + Sync>> {
-        // Use a transaction to ensure SET LOCAL search_path is automatically reverted
-        let txn = self.db.begin().await?;
-        self.set_search_path_in_txn(&txn).await?;
-        
         let insert_model = Self::build_active_model(&identity);
 
         IdentityEntity::insert(insert_model)
@@ -64,11 +43,10 @@ impl IdentityRepository for IdentityRepositoryImpl {
                     ])
                     .to_owned(),
             )
-            .exec(&txn)
+            .exec(&self.db)
             .await
             .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
 
-        txn.commit().await?;
         Ok(identity)
     }
 
@@ -76,17 +54,10 @@ impl IdentityRepository for IdentityRepositoryImpl {
         &self,
         email: &Email,
     ) -> Result<Option<DomainIdentity>, Box<dyn Error + Send + Sync>> {
-        // Use a transaction to ensure SET LOCAL search_path is automatically reverted
-        let txn = self.db.begin().await?;
-        self.set_search_path_in_txn(&txn).await?;
-        
         let model = IdentityEntity::find()
             .filter(Column::Email.eq(email.value()))
-            .one(&txn)
+            .one(&self.db)
             .await?;
-
-        // Read-only, but commit to release the transaction
-        txn.commit().await?;
 
         match model {
             Some(m) => {

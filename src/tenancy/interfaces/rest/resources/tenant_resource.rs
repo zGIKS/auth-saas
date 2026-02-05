@@ -3,14 +3,15 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 use crate::tenancy::domain::model::{
     tenant::Tenant,
-    value_objects::{db_strategy::DbStrategy, auth_config::AuthConfig},
+    value_objects::auth_config::AuthConfig,
 };
+use crate::tenancy::interfaces::rest::resources::db_strategy_type_resource::DbStrategyTypeResource;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TenantResource {
     pub id: Uuid,
     pub name: String,
-    pub db_strategy: DbStrategy,
+    pub db_strategy_type: DbStrategyTypeResource,
     pub auth_config: AuthConfig,
     pub active: bool,
     pub anon_key: String,
@@ -22,7 +23,7 @@ impl TenantResource {
         Self {
             id: tenant.id.value(),
             name: tenant.name.value().to_string(),
-            db_strategy: tenant.db_strategy,
+            db_strategy_type: DbStrategyTypeResource::Isolated,
             auth_config: tenant.auth_config,
             active: tenant.active,
             anon_key,

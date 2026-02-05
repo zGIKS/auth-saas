@@ -40,6 +40,7 @@ pub mod tenancy;
             tenancy::interfaces::rest::resources::create_tenant_resource::CreateTenantRequest,
             tenancy::interfaces::rest::resources::create_tenant_resource::CreateTenantResponse,
             tenancy::interfaces::rest::resources::tenant_resource::TenantResource,
+            tenancy::interfaces::rest::resources::db_strategy_type_resource::DbStrategyTypeResource,
             shared::interfaces::rest::error_response::ErrorResponse
         )
     ),

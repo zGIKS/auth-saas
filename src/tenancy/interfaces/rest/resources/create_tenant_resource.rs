@@ -1,16 +1,11 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
-use crate::tenancy::interfaces::rest::resources::strategy_type::StrategyType;
 
 #[derive(Debug, Deserialize, Serialize, ToSchema, Validate)]
 pub struct CreateTenantRequest {
     #[validate(length(min = 3, max = 30), regex(path = *REGEX_SAFE_NAME, message = "Name must involve alphanumeric characters, hyphens or underscores only"))]
     pub name: String,
-    
-    // User only selects the TYPE ("shared" or "isolated")
-    // They don't provide schema names or connection strings
-    pub db_strategy_type: StrategyType,
     
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,

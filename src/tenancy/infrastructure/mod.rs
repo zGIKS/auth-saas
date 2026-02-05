@@ -1,2 +1,2 @@
 pub mod persistence;
-pub mod schema_initializer;
+pub mod tenant_db_initializer;

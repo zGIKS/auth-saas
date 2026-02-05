@@ -1,4 +1,4 @@
-use crate::shared::infrastructure::services::rate_limiter::RedisRateLimiter;
+use crate::shared::infrastructure::services::rate_limiter::{RateLimitError, RedisRateLimiter};
 use crate::shared::interfaces::rest::app_state::AppState;
 use axum::{
     extract::{ConnectInfo, Request, State},
@@ -6,6 +6,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use redis::AsyncCommands;
 use std::net::SocketAddr;
 
 pub async fn rate_limit_middleware(
@@ -62,29 +63,151 @@ pub async fn rate_limit_middleware(
 
     let path = req.uri().path().to_string();
     let method = req.method().clone();
+    let is_swagger = path.starts_with("/swagger-ui") || path.starts_with("/api-docs");
 
-    // Global IP Limit: 20 req/sec
-    let global_key = format!("rl:ip:{}", ip);
-    // limit=20, rate=20.0 (20 tokens/sec)
-    if (limiter.check(&global_key, 20, 20.0, 1).await).is_err() {
+    if !state.swagger_enabled && is_swagger {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Global IP Limit: 3 req/sec (Swagger: 20 req/sec to allow asset burst)
+    let global_key = if is_swagger {
+        format!("rl:ip:swagger:{}", ip)
+    } else {
+        format!("rl:ip:{}", ip)
+    };
+    let (limit, rate) = if is_swagger { (20, 20.0) } else { (3, 3.0) };
+
+    // Temporary ban for abusive IPs (seconds)
+    let ban_key = format!("rl:ban:ip:{}", ip);
+    if is_ip_banned(&state.redis, &ban_key).await {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
-    // Sign-in limit: 5 req/min per IP
-    if path.contains("/auth/sign-in") && method == Method::POST {
-        let path_key = format!("rl:signin:ip:{}", ip);
-        if (limiter.check(&path_key, 5, 0.0833, 1).await).is_err() {
+    match limiter.check(&global_key, limit, rate, 1).await {
+        Ok(_) => {}
+        Err(RateLimitError::Exceeded(retry_ms)) => {
+            tracing::warn!(
+                "Rate limit exceeded (global): ip={} path={} retry_ms={}",
+                ip,
+                path,
+                retry_ms
+            );
+            // Ban IP for 60 seconds after global limit breach
+            let _ = ban_ip(&state.redis, &ban_key, 60).await;
             return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
+        Err(err) => {
+            tracing::error!("Rate limiter error (global): {}", err);
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
     }
 
-    // Forgot Password limit: 3 req/min per IP
+    // Tenant creation limit: 1 req/min per IP
+    if path.starts_with("/api/v1/tenants") && method == Method::POST {
+        let path_key = format!("rl:tenants:create:ip:{}", ip);
+        match limiter.check(&path_key, 1, 0.0167, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (tenants): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (tenants): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+
+    // Sign-up limit: 3 req/min per IP
+    if path.contains("/identity/sign-up") && method == Method::POST {
+        let path_key = format!("rl:signup:ip:{}", ip);
+        match limiter.check(&path_key, 3, 0.05, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (sign-up): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (sign-up): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+
+    // Sign-in limit: 3 req/min per IP
+    if path.contains("/auth/sign-in") && method == Method::POST {
+        let path_key = format!("rl:signin:ip:{}", ip);
+        match limiter.check(&path_key, 3, 0.05, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (signin): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (signin): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+
+    // Forgot Password limit: 2 req/min per IP
     if path.contains("/identity/forgot-password") && method == Method::POST {
         let path_key = format!("rl:forgot:ip:{}", ip);
-        if (limiter.check(&path_key, 3, 0.05, 1).await).is_err() {
-            return Err(StatusCode::TOO_MANY_REQUESTS);
+        match limiter.check(&path_key, 2, 0.0333, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (forgot password): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (forgot password): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
         }
     }
 
     Ok(next.run(req).await)
+}
+
+async fn is_ip_banned(client: &redis::Client, key: &str) -> bool {
+    if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
+        let exists: Result<bool, _> = conn.exists(key).await;
+        return exists.unwrap_or(false);
+    }
+    false
+}
+
+async fn ban_ip(client: &redis::Client, key: &str, ttl_seconds: u64) -> bool {
+    if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
+        let set_result: Result<(), _> = redis::cmd("SET")
+            .arg(key)
+            .arg("1")
+            .arg("EX")
+            .arg(ttl_seconds)
+            .arg("NX")
+            .query_async(&mut conn)
+            .await;
+        return set_result.is_ok();
+    }
+    false
 }
