@@ -36,6 +36,7 @@ Variables imprescindibles (usa `.env`):
 
 - `DATABASE_URL`, `REDIS_URL`: conexiones a Postgres y Redis.
 - `JWT_SECRET`, `SESSION_DURATION_SECONDS`, `REFRESH_TOKEN_DURATION_SECONDS`: seguridad de tokens.
+- `SWAGGER_ENABLED` (opcional): habilita o deshabilita Swagger en runtime.
 - `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`: rutas de callback y referencia para correos.
 - `SMTP_*`: servidor SMTP para correos transaccionales.
 - `LOCKOUT_THRESHOLD`, `LOCKOUT_DURATION_SECONDS`: control de bloqueo por intentos fallidos.

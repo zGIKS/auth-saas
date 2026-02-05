@@ -62,11 +62,21 @@ pub async fn rate_limit_middleware(
 
     let path = req.uri().path().to_string();
     let method = req.method().clone();
+    let is_swagger = path.starts_with("/swagger-ui") || path.starts_with("/api-docs");
 
-    // Global IP Limit: 20 req/sec
-    let global_key = format!("rl:ip:{}", ip);
-    // limit=20, rate=20.0 (20 tokens/sec)
-    match limiter.check(&global_key, 20, 20.0, 1).await {
+    if !state.swagger_enabled && is_swagger {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Global IP Limit: 3 req/sec (Swagger: 20 req/sec to allow asset burst)
+    let global_key = if is_swagger {
+        format!("rl:ip:swagger:{}", ip)
+    } else {
+        format!("rl:ip:{}", ip)
+    };
+    let (limit, rate) = if is_swagger { (20, 20.0) } else { (3, 3.0) };
+
+    match limiter.check(&global_key, limit, rate, 1).await {
         Ok(_) => {}
         Err(RateLimitError::Exceeded(retry_ms)) => {
             tracing::warn!(
@@ -83,10 +93,52 @@ pub async fn rate_limit_middleware(
         }
     }
 
-    // Sign-in limit: 5 req/min per IP
+    // Tenant creation limit: 1 req/min per IP
+    if path.starts_with("/api/v1/tenants") && method == Method::POST {
+        let path_key = format!("rl:tenants:create:ip:{}", ip);
+        match limiter.check(&path_key, 1, 0.0167, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (tenants): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (tenants): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+
+    // Sign-up limit: 3 req/min per IP
+    if path.contains("/identity/sign-up") && method == Method::POST {
+        let path_key = format!("rl:signup:ip:{}", ip);
+        match limiter.check(&path_key, 3, 0.05, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (sign-up): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (sign-up): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+
+    // Sign-in limit: 3 req/min per IP
     if path.contains("/auth/sign-in") && method == Method::POST {
         let path_key = format!("rl:signin:ip:{}", ip);
-        match limiter.check(&path_key, 5, 0.0833, 1).await {
+        match limiter.check(&path_key, 3, 0.05, 1).await {
             Ok(_) => {}
             Err(RateLimitError::Exceeded(retry_ms)) => {
                 tracing::warn!(
@@ -104,10 +156,10 @@ pub async fn rate_limit_middleware(
         }
     }
 
-    // Forgot Password limit: 3 req/min per IP
+    // Forgot Password limit: 2 req/min per IP
     if path.contains("/identity/forgot-password") && method == Method::POST {
         let path_key = format!("rl:forgot:ip:{}", ip);
-        match limiter.check(&path_key, 3, 0.05, 1).await {
+        match limiter.check(&path_key, 2, 0.0333, 1).await {
             Ok(_) => {}
             Err(RateLimitError::Exceeded(retry_ms)) => {
                 tracing::warn!(

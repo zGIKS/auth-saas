@@ -76,6 +76,10 @@ async fn main() {
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
 
     let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+    let swagger_enabled: bool = std::env::var("SWAGGER_ENABLED")
+        .unwrap_or_else(|_| "true".to_string())
+        .parse()
+        .expect("SWAGGER_ENABLED must be true or false");
 
     let vault_addr = std::env::var("VAULT_ADDR").expect("VAULT_ADDR must be set");
     let vault_role_id = std::env::var("VAULT_ROLE_ID").expect("VAULT_ROLE_ID must be set");
@@ -140,6 +144,7 @@ async fn main() {
         lockout_duration_seconds,
         google_redirect_uri,
         jwt_secret,
+        swagger_enabled,
         circuit_breaker: create_circuit_breaker(),
         vault: VaultClient::new(
             vault_addr,
