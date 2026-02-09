@@ -2,6 +2,7 @@ use utoipa::OpenApi;
 
 pub mod iam;
 pub mod messaging;
+pub mod provisioning;
 pub mod shared;
 pub mod tenancy;
 
