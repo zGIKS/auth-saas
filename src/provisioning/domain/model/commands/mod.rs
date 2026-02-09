@@ -1,1 +1,2 @@
+pub mod deprovision_tenant_resources_command;
 pub mod provision_tenant_resources_command;

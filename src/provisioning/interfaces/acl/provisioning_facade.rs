@@ -8,4 +8,10 @@ pub trait ProvisioningFacade: Send + Sync {
         tenant_id: String,
         schema_name: String,
     ) -> Result<(), DomainError>;
+
+    async fn deprovision_tenant(
+        &self,
+        tenant_id: String,
+        schema_name: String,
+    ) -> Result<(), DomainError>;
 }

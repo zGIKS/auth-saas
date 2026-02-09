@@ -20,7 +20,8 @@ pub mod tenancy;
         iam::federation::interfaces::rest::controllers::google_controller::redirect_to_google,
         iam::federation::interfaces::rest::controllers::google_controller::google_callback,
         tenancy::interfaces::rest::controllers::tenant_controller::create_tenant,
-        tenancy::interfaces::rest::controllers::tenant_controller::get_tenant
+        tenancy::interfaces::rest::controllers::tenant_controller::get_tenant,
+        tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant
     ),
     components(
         schemas(

@@ -1,7 +1,10 @@
 use async_trait::async_trait;
 use crate::provisioning::domain::{
     error::DomainError,
-    model::commands::provision_tenant_resources_command::ProvisionTenantResourcesCommand,
+    model::commands::{
+        provision_tenant_resources_command::ProvisionTenantResourcesCommand,
+        deprovision_tenant_resources_command::DeprovisionTenantResourcesCommand,
+    },
     services::{
         provisioning_command_service::ProvisioningCommandService,
         schema_provisioner::SchemaProvisioner,
@@ -33,6 +36,20 @@ impl<S: SchemaProvisioner> ProvisioningCommandService for ProvisioningCommandSer
         self.schema_provisioner.run_migrations(schema_name).await?;
 
         // 3. (Optional) Emit TenantResourcesProvisioned event
+
+        Ok(())
+    }
+
+    async fn deprovision_tenant_resources(
+        &self,
+        command: DeprovisionTenantResourcesCommand,
+    ) -> Result<(), DomainError> {
+        let schema_name = command.schema_name.value();
+        
+        // 1. Drop Schema (CASCADE)
+        self.schema_provisioner.drop_schema(schema_name).await?;
+
+        // 2. (Optional) Emit TenantResourcesDeprovisioned event
 
         Ok(())
     }

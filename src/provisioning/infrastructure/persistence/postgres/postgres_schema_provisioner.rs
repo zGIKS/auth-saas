@@ -88,4 +88,20 @@ impl SchemaProvisioner for PostgresSchemaProvisioner {
 
         Ok(())
     }
+
+    async fn drop_schema(&self, schema_name: &str) -> Result<(), DomainError> {
+        let db = Self::connect_with_retry(&self.base_connection_string, 10, Duration::from_millis(500))
+            .await
+            .map_err(DomainError::InfrastructureError)?;
+
+        let drop_schema_sql = format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", schema_name);
+        db.execute(Statement::from_string(
+            DatabaseBackend::Postgres,
+            drop_schema_sql,
+        ))
+        .await
+        .map_err(|e| DomainError::InfrastructureError(format!("Failed to drop schema: {}", e)))?;
+
+        Ok(())
+    }
 }

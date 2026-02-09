@@ -10,4 +10,5 @@ pub trait TenantRepository: Send + Sync {
     async fn save(&self, tenant: Tenant) -> Result<Tenant, TenantError>;
     async fn find_by_id(&self, id: &TenantId) -> Result<Option<Tenant>, TenantError>;
     async fn find_by_name(&self, name: &TenantName) -> Result<Option<Tenant>, TenantError>;
+    async fn delete(&self, id: &TenantId) -> Result<(), TenantError>;
 }
