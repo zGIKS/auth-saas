@@ -46,7 +46,7 @@ async fn test_create_tenant_success() {
 
     let command = CreateTenantCommand::new(
         "test-project".to_string(),
-        "tenants/test-project/db".to_string(),
+        "tenant_test_project".to_string(),
         None,
         None,
     ).expect("Command should be valid");
@@ -58,8 +58,8 @@ async fn test_create_tenant_success() {
     
     assert_eq!(tenant.name.value(), "test-project");
     match tenant.db_strategy {
-        DbStrategy::Isolated { db_secret_path } => {
-            assert_eq!(db_secret_path, "tenants/test-project/db");
+        DbStrategy::Shared { schema } => {
+            assert_eq!(schema, "tenant_test_project");
         }
     }
     // Verify Key is not empty
@@ -79,7 +79,7 @@ async fn test_create_tenant_already_exists() {
              Ok(Some(Tenant::new(
                 TenantId::random(),
                 name.clone(),
-                DbStrategy::Isolated { db_secret_path: "tenants/existing-project/db".to_string() },
+                DbStrategy::Shared { schema: "tenant_existing_project".to_string() },
                 AuthConfig::new(
                     "dummy_secret_also_needs_to_be_long_123456789".to_string(), 
                     None, 
@@ -95,7 +95,7 @@ async fn test_create_tenant_already_exists() {
 
     let command = CreateTenantCommand::new(
         "existing-project".to_string(),
-        "tenants/existing-project/db".to_string(),
+        "tenant_existing_project".to_string(),
         None,
         None,
     ).expect("Command should be valid");
@@ -114,7 +114,7 @@ async fn test_create_tenant_fails_with_invalid_name() {
     // This logic is mostly in the Command creation, but good to verify
     let result = CreateTenantCommand::new(
         "Invalid Name Here".to_string(), // Spaces not allowed
-        "tenants/invalid-name/db".to_string(),
+        "tenant_invalid_name".to_string(),
         None,
         None,
     );
@@ -146,7 +146,7 @@ async fn test_security_generated_jwt_structure() {
     
     let command = CreateTenantCommand::new(
         "secure-app".to_string(),
-        "tenants/secure-app/db".to_string(),
+        "tenant_secure_app".to_string(),
         None,
         None,
     ).unwrap();
@@ -173,7 +173,7 @@ async fn test_security_generated_jwt_structure() {
 }
 
 #[tokio::test]
-async fn test_rejects_empty_secret_path() {
+async fn test_rejects_empty_schema_name() {
     let mut mock_repo = MockTenantRepository::new();
     mock_repo.expect_find_by_name().returning(|_| Ok(None));
     mock_repo.expect_save().returning(Ok);
@@ -185,9 +185,9 @@ async fn test_rejects_empty_secret_path() {
         None,
     );
 
-    assert!(command.is_err(), "Should fail due to empty connection string");
+    assert!(command.is_err(), "Should fail due to empty schema name");
     match command.unwrap_err() {
-        TenantError::InvalidDbSecretPath(_) => (),
-        _ => panic!("Expected InvalidDbSecretPath error"),
+        TenantError::InvalidSchemaName(_) => (),
+        _ => panic!("Expected InvalidSchemaName error"),
     }
 }

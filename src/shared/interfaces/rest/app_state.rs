@@ -2,12 +2,11 @@ use redis::Client;
 use sea_orm::DatabaseConnection;
 
 use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
-use crate::shared::infrastructure::services::docker_provisioner::DockerProvisioner;
-use crate::shared::infrastructure::services::vault_client::VaultClient;
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: DatabaseConnection,
+    pub base_database_url: String,
     pub redis: redis::Client,
     pub session_duration_seconds: u64,
     pub refresh_token_duration_seconds: u64,
@@ -20,8 +19,6 @@ pub struct AppState {
     pub jwt_secret: String,
     pub swagger_enabled: bool,
     pub circuit_breaker: AppCircuitBreaker,
-    pub vault: VaultClient,
-    pub docker: DockerProvisioner,
 }
 
 impl axum::extract::FromRef<AppState> for DatabaseConnection {

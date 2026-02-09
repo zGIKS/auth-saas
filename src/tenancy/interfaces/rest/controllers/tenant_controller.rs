@@ -59,48 +59,22 @@ pub async fn create_tenant(
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
 
-    let provisioned = match state.docker.create_tenant_db(&payload.name).await {
-        Ok(db) => db,
-        Err(e) => {
-            tracing::error!("Failed to provision tenant DB: {}", e);
-            return ErrorResponse::new("Failed to provision tenant database")
-                .with_code(500)
-                .into_response();
-        }
-    };
-
-    if let Err(e) = tenant_db_initializer::initialize_tenant_db(&provisioned.connection_string).await {
-        tracing::error!("Failed to initialize tenant DB: {}", e);
-        let _ = state.docker.remove_container(&provisioned.container_id).await;
+    let schema_name = tenant_schema_name(&payload.name);
+    if let Err(e) = tenant_db_initializer::initialize_tenant_db(&state.base_database_url, &schema_name).await {
+        tracing::error!("Failed to initialize tenant schema: {}", e);
         return ErrorResponse::new("Failed to initialize tenant database")
-            .with_code(500)
-            .into_response();
-    }
-
-    let secret_path = format!("tenants/{}/db", payload.name);
-
-    if let Err(e) = state
-        .vault
-        .write_db_connection_string(&secret_path, &provisioned.connection_string)
-        .await
-    {
-        tracing::error!("Failed to write tenant DB secret to Vault: {}", e);
-        let _ = state.docker.remove_container(&provisioned.container_id).await;
-        return ErrorResponse::new("Failed to store tenant DB secret")
             .with_code(500)
             .into_response();
     }
 
     let command = match CreateTenantCommand::new(
         payload.name,
-        secret_path.clone(),
+        schema_name,
         payload.google_client_id,
         payload.google_client_secret,
     ) {
         Ok(cmd) => cmd,
         Err(e) => {
-            let _ = state.vault.delete_secret_path(&secret_path).await;
-            let _ = state.docker.remove_container(&provisioned.container_id).await;
             return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
         }
     };
@@ -117,15 +91,13 @@ pub async fn create_tenant(
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => {
-            let _ = state.vault.delete_secret_path(&secret_path).await;
-            let _ = state.docker.remove_container(&provisioned.container_id).await;
             match e {
             TenantError::AlreadyExists => ErrorResponse::new("Tenant already exists")
                 .with_code(409)
                 .into_response(),
             TenantError::InvalidName(msg)
             | TenantError::InvalidAuthConfig(msg)
-            | TenantError::InvalidDbSecretPath(msg) => {
+            | TenantError::InvalidSchemaName(msg) => {
                 ErrorResponse::new(&msg).with_code(400).into_response()
             }
             _ => {
@@ -135,6 +107,22 @@ pub async fn create_tenant(
             }
         }
     }
+}
+
+fn tenant_schema_name(tenant_name: &str) -> String {
+    let normalized: String = tenant_name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("tenant_{normalized}")
 }
 
 #[utoipa::path(
