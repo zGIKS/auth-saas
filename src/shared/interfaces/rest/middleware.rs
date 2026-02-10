@@ -110,8 +110,8 @@ pub async fn rate_limit_middleware(
         }
     }
 
-    // Tenant creation limit: 1 req/min per IP
-    if path.starts_with("/api/v1/tenants") && method == Method::POST {
+    // Tenant creation limit: 1 req/min per IP (only exact create endpoint)
+    if path == "/api/v1/tenants" && method == Method::POST {
         let path_key = format!("rl:tenants:create:ip:{}", ip);
         match limiter.check(&path_key, 1, 0.0167, 1).await {
             Ok(_) => {}
@@ -126,6 +126,32 @@ pub async fn rate_limit_middleware(
             }
             Err(err) => {
                 tracing::error!("Rate limiter error (tenants): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+
+    // Tenant admin actions (rotate/reissue) limit: 5 req/min per IP
+    // Keep secure but practical so normal admin workflows are not blocked.
+    if method == Method::POST
+        && (path.ends_with("/oauth/google/rotate")
+            || path.ends_with("/jwt-signing-key/rotate")
+            || path.ends_with("/anon-key/reissue"))
+    {
+        let path_key = format!("rl:tenants:admin-action:ip:{}", ip);
+        match limiter.check(&path_key, 5, 0.0833, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (tenant admin action): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (tenant admin action): {}", err);
                 return Err(StatusCode::SERVICE_UNAVAILABLE);
             }
         }

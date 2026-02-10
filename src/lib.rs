@@ -23,7 +23,10 @@ pub mod tenancy;
         iam::federation::interfaces::rest::controllers::google_controller::google_callback,
         tenancy::interfaces::rest::controllers::tenant_controller::create_tenant,
         tenancy::interfaces::rest::controllers::tenant_controller::get_tenant,
-        tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant
+        tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant,
+        tenancy::interfaces::rest::controllers::tenant_controller::rotate_google_oauth_config,
+        tenancy::interfaces::rest::controllers::tenant_controller::rotate_tenant_jwt_signing_key,
+        tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key
     ),
     components(
         schemas(
@@ -47,6 +50,10 @@ pub mod tenancy;
             tenancy::interfaces::rest::resources::create_tenant_resource::CreateTenantResponse,
             tenancy::interfaces::rest::resources::tenant_resource::TenantResource,
             tenancy::interfaces::rest::resources::db_strategy_type_resource::DbStrategyTypeResource,
+            tenancy::interfaces::rest::resources::rotate_google_oauth_config_resource::RotateGoogleOauthConfigRequest,
+            tenancy::interfaces::rest::resources::rotate_google_oauth_config_resource::RotateGoogleOauthConfigResponse,
+            tenancy::interfaces::rest::resources::rotate_tenant_jwt_signing_key_resource::RotateTenantJwtSigningKeyResponse,
+            tenancy::interfaces::rest::resources::reissue_tenant_anon_key_resource::ReissueTenantAnonKeyResponse,
             shared::interfaces::rest::error_response::ErrorResponse
         )
     ),

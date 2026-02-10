@@ -24,8 +24,12 @@ use crate::tenancy::domain::{
     error::TenantError,
     model::commands::{
         create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
+        rotate_google_oauth_config_command::RotateGoogleOauthConfigCommand,
+        rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
     },
-    model::queries::get_tenant_query::GetTenantQuery,
+    model::queries::{
+        get_tenant_query::GetTenantQuery, reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
+    },
     services::{
         tenant_command_service::TenantCommandService, tenant_query_service::TenantQueryService,
     },
@@ -33,6 +37,11 @@ use crate::tenancy::domain::{
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
+    reissue_tenant_anon_key_resource::ReissueTenantAnonKeyResponse,
+    rotate_google_oauth_config_resource::{
+        RotateGoogleOauthConfigRequest, RotateGoogleOauthConfigResponse,
+    },
+    rotate_tenant_jwt_signing_key_resource::RotateTenantJwtSigningKeyResponse,
     tenant_resource::TenantResource,
 };
 
@@ -193,7 +202,7 @@ fn tenant_schema_name(tenant_name: &str) -> String {
 pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let query = GetTenantQuery::new(id);
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantQueryServiceImpl::new(repository);
+    let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.get_tenant(query).await {
         Ok(Some(tenant)) => {
@@ -225,5 +234,161 @@ pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> 
             tracing::error!("Get tenant error: {}", e);
             ErrorResponse::internal_error().into_response()
         }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tenants/{id}/oauth/google/rotate",
+    tag = "tenancy",
+    security(("admin_bearer" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Tenant ID")
+    ),
+    request_body = RotateGoogleOauthConfigRequest,
+    responses(
+        (status = 200, description = "Google OAuth config rotated successfully", body = RotateGoogleOauthConfigResponse),
+        (status = 400, description = "Bad Request"),
+        (status = 401, description = "Admin authentication required"),
+        (status = 404, description = "Tenant not found"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn rotate_google_oauth_config(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<RotateGoogleOauthConfigRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = payload.validate() {
+        return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
+    }
+
+    let command = match RotateGoogleOauthConfigCommand::new(
+        id,
+        payload.google_client_id,
+        payload.google_client_secret,
+    ) {
+        Ok(c) => c,
+        Err(e) => {
+            return ErrorResponse::new(e.to_string())
+                .with_code(StatusCode::BAD_REQUEST.as_u16())
+                .into_response();
+        }
+    };
+
+    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
+    let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+
+    match service.rotate_google_oauth_config(command).await {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(RotateGoogleOauthConfigResponse {
+                message: "Google OAuth configuration rotated successfully".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => match e {
+            TenantError::NotFound => ErrorResponse::new("Tenant not found")
+                .with_code(StatusCode::NOT_FOUND.as_u16())
+                .into_response(),
+            TenantError::InvalidAuthConfig(msg) => ErrorResponse::new(msg)
+                .with_code(StatusCode::BAD_REQUEST.as_u16())
+                .into_response(),
+            _ => {
+                tracing::error!("Rotate Google OAuth config error: {}", e);
+                ErrorResponse::internal_error().into_response()
+            }
+        },
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tenants/{id}/jwt-signing-key/rotate",
+    tag = "tenancy",
+    security(("admin_bearer" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Tenant JWT signing key rotated successfully", body = RotateTenantJwtSigningKeyResponse),
+        (status = 401, description = "Admin authentication required"),
+        (status = 404, description = "Tenant not found"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn rotate_tenant_jwt_signing_key(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let command = RotateTenantJwtSigningKeyCommand::new(id);
+
+    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
+    let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+
+    match service.rotate_tenant_jwt_signing_key(command).await {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(RotateTenantJwtSigningKeyResponse {
+                message: "Tenant JWT signing key rotated successfully".to_string(),
+            }),
+        )
+            .into_response(),
+        Err(e) => match e {
+            TenantError::NotFound => ErrorResponse::new("Tenant not found")
+                .with_code(StatusCode::NOT_FOUND.as_u16())
+                .into_response(),
+            _ => {
+                tracing::error!("Rotate tenant JWT signing key error: {}", e);
+                ErrorResponse::internal_error().into_response()
+            }
+        },
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tenants/{id}/anon-key/reissue",
+    tag = "tenancy",
+    security(("admin_bearer" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 200, description = "Tenant anon key reissued successfully", body = ReissueTenantAnonKeyResponse),
+        (status = 401, description = "Admin authentication required"),
+        (status = 404, description = "Tenant not found"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn reissue_tenant_anon_key(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let query = ReissueTenantAnonKeyQuery::new(id);
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
+
+    match service.reissue_tenant_anon_key(query).await {
+        Ok(anon_key) => (
+            StatusCode::OK,
+            Json(ReissueTenantAnonKeyResponse { anon_key }),
+        )
+            .into_response(),
+        Err(e) => match e {
+            TenantError::NotFound => ErrorResponse::new("Tenant not found")
+                .with_code(StatusCode::NOT_FOUND.as_u16())
+                .into_response(),
+            _ => {
+                tracing::error!("Reissue tenant anon key error: {}", e);
+                ErrorResponse::internal_error().into_response()
+            }
+        },
     }
 }

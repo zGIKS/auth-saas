@@ -12,6 +12,7 @@ use crate::tenancy::domain::{
 };
 use async_trait::async_trait;
 use sea_orm::*;
+use sea_query::Expr;
 
 pub struct PostgresTenantRepository {
     db: DatabaseConnection,
@@ -26,11 +27,16 @@ impl PostgresTenantRepository {
 #[async_trait]
 impl TenantRepository for PostgresTenantRepository {
     async fn save(&self, tenant: Tenant) -> Result<Tenant, TenantError> {
+        let db_strategy = serde_json::to_value(&tenant.db_strategy)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+        let auth_config = serde_json::to_value(&tenant.auth_config)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
         let tenant_model = model::ActiveModel {
             id: Set(tenant.id.value()),
             name: Set(tenant.name.value().to_string()),
-            db_strategy: Set(serde_json::to_value(&tenant.db_strategy).unwrap()),
-            auth_config: Set(serde_json::to_value(&tenant.auth_config).unwrap()),
+            db_strategy: Set(db_strategy),
+            auth_config: Set(auth_config),
             created_at: Set(tenant.created_at),
             updated_at: Set(tenant.updated_at),
             active: Set(tenant.active),
@@ -45,6 +51,30 @@ impl TenantRepository for PostgresTenantRepository {
 
         // Devolvemos el tenant tal cual entró porque asumimos éxito.
         // En prod, re-hidrataríamos desde la respuesta DB si hay campos autogenerados (no es el caso aquí excepto timestamps si fuera DB side)
+        Ok(tenant)
+    }
+
+    async fn update(&self, tenant: Tenant) -> Result<Tenant, TenantError> {
+        let db_strategy = serde_json::to_value(&tenant.db_strategy)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+        let auth_config = serde_json::to_value(&tenant.auth_config)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
+        let result = TenantEntity::update_many()
+            .col_expr(model::Column::Name, Expr::value(tenant.name.value().to_string()))
+            .col_expr(model::Column::DbStrategy, Expr::value(db_strategy))
+            .col_expr(model::Column::AuthConfig, Expr::value(auth_config))
+            .col_expr(model::Column::UpdatedAt, Expr::value(tenant.updated_at))
+            .col_expr(model::Column::Active, Expr::value(tenant.active))
+            .filter(model::Column::Id.eq(tenant.id.value()))
+            .exec(&self.db)
+            .await
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
+        if result.rows_affected == 0 {
+            return Err(TenantError::NotFound);
+        }
+
         Ok(tenant)
     }
 
