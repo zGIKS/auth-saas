@@ -16,20 +16,26 @@ pub struct CreateTenantCommand {
 impl CreateTenantCommand {
     pub fn new(
         name: String,
-        db_secret_path: String,
+        schema_name: String,
         google_client_id: Option<String>,
         google_client_secret: Option<String>,
     ) -> Result<Self, TenantError> {
         let name_vo = TenantName::new(name).map_err(TenantError::InvalidName)?;
-        
-        let secret_path = db_secret_path.trim().to_string();
-        if secret_path.is_empty() {
-            return Err(TenantError::InvalidDbSecretPath(
-                "secret path cannot be empty".to_string(),
+
+        let schema = schema_name.trim().to_lowercase();
+        if schema.is_empty() {
+            return Err(TenantError::InvalidSchemaName(
+                "schema name cannot be empty".to_string(),
+            ));
+        }
+        if !schema.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
+            return Err(TenantError::InvalidSchemaName(
+                "schema name must contain only lowercase letters, numbers or underscores"
+                    .to_string(),
             ));
         }
 
-        let db_strategy = DbStrategy::Isolated { db_secret_path: secret_path };
+        let db_strategy = DbStrategy::Shared { schema };
 
         // Generate a secure random JWT secret (64 bytes = 512 bits)
         let jwt_secret = Self::generate_jwt_secret();

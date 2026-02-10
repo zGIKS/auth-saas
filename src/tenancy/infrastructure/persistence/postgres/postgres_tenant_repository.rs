@@ -69,6 +69,14 @@ impl TenantRepository for PostgresTenantRepository {
             None => Ok(None),
         }
     }
+
+    async fn delete(&self, id: &TenantId) -> Result<(), TenantError> {
+        TenantEntity::delete_by_id(id.value())
+            .exec(&self.db)
+            .await
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+        Ok(())
+    }
 }
 
 fn map_model_to_entity(model: model::Model) -> Result<Tenant, TenantError> {

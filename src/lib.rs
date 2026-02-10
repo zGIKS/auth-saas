@@ -2,6 +2,7 @@ use utoipa::OpenApi;
 
 pub mod iam;
 pub mod messaging;
+pub mod provisioning;
 pub mod shared;
 pub mod tenancy;
 
@@ -19,7 +20,8 @@ pub mod tenancy;
         iam::federation::interfaces::rest::controllers::google_controller::redirect_to_google,
         iam::federation::interfaces::rest::controllers::google_controller::google_callback,
         tenancy::interfaces::rest::controllers::tenant_controller::create_tenant,
-        tenancy::interfaces::rest::controllers::tenant_controller::get_tenant
+        tenancy::interfaces::rest::controllers::tenant_controller::get_tenant,
+        tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant
     ),
     components(
         schemas(

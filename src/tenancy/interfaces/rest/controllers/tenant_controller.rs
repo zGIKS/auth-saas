@@ -14,7 +14,10 @@ use crate::shared::interfaces::rest::{
 };
 use crate::tenancy::domain::{
     error::TenantError,
-    model::commands::create_tenant_command::CreateTenantCommand,
+    model::commands::{
+        create_tenant_command::CreateTenantCommand,
+        delete_tenant_command::DeleteTenantCommand,
+    },
     model::queries::get_tenant_query::GetTenantQuery,
     services::{
         tenant_command_service::TenantCommandService,
@@ -25,8 +28,14 @@ use crate::tenancy::application::{
     command_services::tenant_command_service_impl::TenantCommandServiceImpl,
     query_services::tenant_query_service_impl::TenantQueryServiceImpl,
 };
+use crate::provisioning::{
+    application::{
+        acl::provisioning_facade_impl::ProvisioningFacadeImpl,
+        command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl,
+    },
+    infrastructure::persistence::postgres::postgres_schema_provisioner::PostgresSchemaProvisioner,
+};
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
-use crate::tenancy::infrastructure::tenant_db_initializer;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     tenant_resource::TenantResource,
@@ -59,54 +68,29 @@ pub async fn create_tenant(
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
 
-    let provisioned = match state.docker.create_tenant_db(&payload.name).await {
-        Ok(db) => db,
-        Err(e) => {
-            tracing::error!("Failed to provision tenant DB: {}", e);
-            return ErrorResponse::new("Failed to provision tenant database")
-                .with_code(500)
-                .into_response();
-        }
-    };
-
-    if let Err(e) = tenant_db_initializer::initialize_tenant_db(&provisioned.connection_string).await {
-        tracing::error!("Failed to initialize tenant DB: {}", e);
-        let _ = state.docker.remove_container(&provisioned.container_id).await;
-        return ErrorResponse::new("Failed to initialize tenant database")
-            .with_code(500)
-            .into_response();
-    }
-
-    let secret_path = format!("tenants/{}/db", payload.name);
-
-    if let Err(e) = state
-        .vault
-        .write_db_connection_string(&secret_path, &provisioned.connection_string)
-        .await
-    {
-        tracing::error!("Failed to write tenant DB secret to Vault: {}", e);
-        let _ = state.docker.remove_container(&provisioned.container_id).await;
-        return ErrorResponse::new("Failed to store tenant DB secret")
-            .with_code(500)
-            .into_response();
-    }
-
+    let schema_name = tenant_schema_name(&payload.name);
+    
     let command = match CreateTenantCommand::new(
         payload.name,
-        secret_path.clone(),
+        schema_name,
         payload.google_client_id,
         payload.google_client_secret,
     ) {
         Ok(cmd) => cmd,
         Err(e) => {
-            let _ = state.vault.delete_secret_path(&secret_path).await;
-            let _ = state.docker.remove_container(&provisioned.container_id).await;
             return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
         }
     };
 
+    // Initialize Provisioning BC components
+    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
+    let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
+
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository, state.jwt_secret.clone());
+    
+    // Inject Facade into TenantCommandService
+    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.create_tenant(command).await {
         Ok((tenant, anon_key)) => {
@@ -117,15 +101,13 @@ pub async fn create_tenant(
             (StatusCode::CREATED, Json(response)).into_response()
         }
         Err(e) => {
-            let _ = state.vault.delete_secret_path(&secret_path).await;
-            let _ = state.docker.remove_container(&provisioned.container_id).await;
             match e {
             TenantError::AlreadyExists => ErrorResponse::new("Tenant already exists")
                 .with_code(409)
                 .into_response(),
             TenantError::InvalidName(msg)
             | TenantError::InvalidAuthConfig(msg)
-            | TenantError::InvalidDbSecretPath(msg) => {
+            | TenantError::InvalidSchemaName(msg) => {
                 ErrorResponse::new(&msg).with_code(400).into_response()
             }
             _ => {
@@ -135,6 +117,61 @@ pub async fn create_tenant(
             }
         }
     }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/tenants/{id}",
+    tag = "tenancy",
+    params(
+        ("id" = Uuid, Path, description = "Tenant ID")
+    ),
+    responses(
+        (status = 204, description = "Tenant deleted"),
+        (status = 404, description = "Tenant not found"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn delete_tenant(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+) -> impl IntoResponse {
+    let command = DeleteTenantCommand::new(id);
+    
+    // Initialize Provisioning BC components
+    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
+    let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
+
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+
+    match service.delete_tenant(command).await {
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => match e {
+            TenantError::NotFound => ErrorResponse::new("Tenant not found").with_code(404).into_response(),
+             _ => {
+                tracing::error!("Delete tenant error: {}", e);
+                ErrorResponse::internal_error().into_response()
+            }
+        }
+    }
+}
+
+fn tenant_schema_name(tenant_name: &str) -> String {
+    let normalized: String = tenant_name
+        .trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("tenant_{normalized}")
 }
 
 #[utoipa::path(

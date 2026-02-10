@@ -6,8 +6,8 @@ pub enum TenantError {
     InvalidName(String),
     #[error("Invalid auth config: {0}")]
     InvalidAuthConfig(String),
-    #[error("Invalid database secret path: {0}")]
-    InvalidDbSecretPath(String),
+    #[error("Invalid schema name: {0}")]
+    InvalidSchemaName(String),
     #[error("Tenant not found")]
     NotFound,
     #[error("Tenant already exists")]

@@ -4,8 +4,8 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "type", content = "config")]
 pub enum DbStrategy {
-    #[serde(rename = "isolated")]
-    Isolated {
-        db_secret_path: String,
+    #[serde(rename = "shared")]
+    Shared {
+        schema: String,
     },
 }

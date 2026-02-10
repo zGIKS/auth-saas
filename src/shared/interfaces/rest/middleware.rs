@@ -123,6 +123,27 @@ pub async fn rate_limit_middleware(
         }
     }
 
+    // Tenant deletion limit: 1 req/min per IP
+    if path.starts_with("/api/v1/tenants") && method == Method::DELETE {
+        let path_key = format!("rl:tenants:delete:ip:{}", ip);
+        match limiter.check(&path_key, 1, 0.0167, 1).await {
+            Ok(_) => {}
+            Err(RateLimitError::Exceeded(retry_ms)) => {
+                tracing::warn!(
+                    "Rate limit exceeded (tenant deletion): ip={} path={} retry_ms={}",
+                    ip,
+                    path,
+                    retry_ms
+                );
+                return Err(StatusCode::TOO_MANY_REQUESTS);
+            }
+            Err(err) => {
+                tracing::error!("Rate limiter error (tenant deletion): {}", err);
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            }
+        }
+    }
+
     // Sign-up limit: 3 req/min per IP
     if path.contains("/identity/sign-up") && method == Method::POST {
         let path_key = format!("rl:signup:ip:{}", ip);

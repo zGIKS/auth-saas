@@ -458,20 +458,23 @@ async fn resolve_tenant_db(
     db_strategy: &DbStrategy,
 ) -> Result<DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Isolated { db_secret_path } => {
-            let connection_string = state
-                .vault
-                .read_db_connection_string(db_secret_path)
-                .await
-                .map_err(|e| {
-                    tracing::error!("Failed to read tenant DB secret: {}", e);
-                    ErrorResponse::new("Failed to read tenant DB secret").with_code(500)
-                })?;
-
+        DbStrategy::Shared { schema } => {
+            let connection_string = with_search_path(&state.base_database_url, schema);
             Database::connect(&connection_string).await.map_err(|e| {
                 tracing::error!("Failed to connect to tenant database: {}", e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
             })
         }
     }
+}
+
+fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
+    let search_path = format!("-csearch_path={},public", schema_name);
+    let option_value = urlencoding::encode(&search_path);
+    let separator = if base_connection_string.contains('?') {
+        "&"
+    } else {
+        "?"
+    };
+    format!("{base_connection_string}{separator}options={option_value}")
 }

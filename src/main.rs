@@ -12,8 +12,6 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use auth_service::shared::infrastructure::persistence::redis as redis_infra;
-use auth_service::shared::infrastructure::services::docker_provisioner::DockerProvisioner;
-use auth_service::shared::infrastructure::services::vault_client::VaultClient;
 use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
 
 #[tokio::main]
@@ -81,40 +79,6 @@ async fn main() {
         .parse()
         .expect("SWAGGER_ENABLED must be true or false");
 
-    let vault_addr = std::env::var("VAULT_ADDR").expect("VAULT_ADDR must be set");
-    let vault_role_id = std::env::var("VAULT_ROLE_ID").expect("VAULT_ROLE_ID must be set");
-    let vault_secret_id = std::env::var("VAULT_SECRET_ID").expect("VAULT_SECRET_ID must be set");
-    let vault_namespace = std::env::var("VAULT_NAMESPACE").ok();
-    let vault_kv_mount = std::env::var("VAULT_KV_MOUNT").unwrap_or_else(|_| "secret".to_string());
-
-    let tenant_db_image =
-        std::env::var("TENANT_DB_IMAGE").unwrap_or_else(|_| "postgres:16-alpine".to_string());
-    let tenant_db_network =
-        std::env::var("TENANT_DB_NETWORK").unwrap_or_else(|_| "auth-tenants".to_string());
-    let tenant_db_host =
-        std::env::var("TENANT_DB_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let tenant_db_user =
-        std::env::var("TENANT_DB_USER").unwrap_or_else(|_| "tenant_user".to_string());
-    let tenant_db_name_prefix =
-        std::env::var("TENANT_DB_NAME_PREFIX").unwrap_or_else(|_| "tenant_".to_string());
-    let tenant_db_memory_mb = std::env::var("TENANT_DB_MEMORY_MB")
-        .ok()
-        .and_then(|v| v.parse::<i64>().ok());
-    let tenant_db_cpu_cores = std::env::var("TENANT_DB_CPU_CORES")
-        .ok()
-        .and_then(|v| v.parse::<f64>().ok());
-
-    let docker_provisioner = DockerProvisioner::new(
-        tenant_db_image,
-        tenant_db_network,
-        tenant_db_host,
-        tenant_db_user,
-        tenant_db_name_prefix,
-        tenant_db_memory_mb,
-        tenant_db_cpu_cores,
-    )
-    .expect("Failed to initialize Docker provisioner");
-
     // Initialize database schema
     // Only create the tenants table in public schema (metadata)
     // User tables will be created per-tenant when a tenant is created
@@ -134,6 +98,7 @@ async fn main() {
 
     let state = AppState {
         db,
+        base_database_url: database_url,
         redis: redis_client,
         session_duration_seconds,
         refresh_token_duration_seconds,
@@ -146,14 +111,6 @@ async fn main() {
         jwt_secret,
         swagger_enabled,
         circuit_breaker: create_circuit_breaker(),
-        vault: VaultClient::new(
-            vault_addr,
-            vault_role_id,
-            vault_secret_id,
-            vault_namespace,
-            vault_kv_mount,
-        ),
-        docker: docker_provisioner,
     };
 
     let tenant_aware_routes = Router::new()
@@ -175,7 +132,7 @@ async fn main() {
         .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         // Tenancy Routes
         .route("/api/v1/tenants", post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant))
-        .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant))
+        .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant).delete(tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state);
