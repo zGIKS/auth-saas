@@ -1,11 +1,10 @@
+use crate::iam::identity::infrastructure::persistence::postgres::model::Entity as IdentityEntity;
+use crate::provisioning::domain::{
+    error::DomainError, services::schema_provisioner::SchemaProvisioner,
+};
 use async_trait::async_trait;
 use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Schema, Statement};
 use std::time::Duration;
-use crate::provisioning::domain::{
-    error::DomainError,
-    services::schema_provisioner::SchemaProvisioner,
-};
-use crate::iam::identity::infrastructure::persistence::postgres::model::Entity as IdentityEntity;
 
 pub struct PostgresSchemaProvisioner {
     base_connection_string: String,
@@ -13,7 +12,9 @@ pub struct PostgresSchemaProvisioner {
 
 impl PostgresSchemaProvisioner {
     pub fn new(base_connection_string: String) -> Self {
-        Self { base_connection_string }
+        Self {
+            base_connection_string,
+        }
     }
 
     async fn connect_with_retry(
@@ -53,9 +54,10 @@ impl PostgresSchemaProvisioner {
 #[async_trait]
 impl SchemaProvisioner for PostgresSchemaProvisioner {
     async fn create_schema(&self, schema_name: &str) -> Result<(), DomainError> {
-        let db = Self::connect_with_retry(&self.base_connection_string, 10, Duration::from_millis(500))
-            .await
-            .map_err(DomainError::InfrastructureError)?;
+        let db =
+            Self::connect_with_retry(&self.base_connection_string, 10, Duration::from_millis(500))
+                .await
+                .map_err(DomainError::InfrastructureError)?;
 
         let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS \"{}\"", schema_name);
         db.execute(Statement::from_string(
@@ -69,11 +71,13 @@ impl SchemaProvisioner for PostgresSchemaProvisioner {
     }
 
     async fn run_migrations(&self, schema_name: &str) -> Result<(), DomainError> {
-        let tenant_connection_string = Self::with_search_path(&self.base_connection_string, schema_name);
-        let db = Self::connect_with_retry(&tenant_connection_string, 10, Duration::from_millis(500))
-            .await
-            .map_err(DomainError::InfrastructureError)?;
-        
+        let tenant_connection_string =
+            Self::with_search_path(&self.base_connection_string, schema_name);
+        let db =
+            Self::connect_with_retry(&tenant_connection_string, 10, Duration::from_millis(500))
+                .await
+                .map_err(DomainError::InfrastructureError)?;
+
         let builder = db.get_database_backend();
         let schema = Schema::new(builder);
 
@@ -82,17 +86,18 @@ impl SchemaProvisioner for PostgresSchemaProvisioner {
         let mut create_users_table = schema.create_table_from_entity(IdentityEntity);
         let stmt_users = builder.build(create_users_table.if_not_exists());
 
-        db.execute(stmt_users)
-            .await
-            .map_err(|e| DomainError::InfrastructureError(format!("Failed to create users table: {}", e)))?;
+        db.execute(stmt_users).await.map_err(|e| {
+            DomainError::InfrastructureError(format!("Failed to create users table: {}", e))
+        })?;
 
         Ok(())
     }
 
     async fn drop_schema(&self, schema_name: &str) -> Result<(), DomainError> {
-        let db = Self::connect_with_retry(&self.base_connection_string, 10, Duration::from_millis(500))
-            .await
-            .map_err(DomainError::InfrastructureError)?;
+        let db =
+            Self::connect_with_retry(&self.base_connection_string, 10, Duration::from_millis(500))
+                .await
+                .map_err(DomainError::InfrastructureError)?;
 
         let drop_schema_sql = format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", schema_name);
         db.execute(Statement::from_string(

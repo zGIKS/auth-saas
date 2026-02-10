@@ -1,11 +1,11 @@
-use async_trait::async_trait;
 use crate::provisioning::domain::{
     error::DomainError,
     model::commands::{
-        provision_tenant_resources_command::ProvisionTenantResourcesCommand,
         deprovision_tenant_resources_command::DeprovisionTenantResourcesCommand,
+        provision_tenant_resources_command::ProvisionTenantResourcesCommand,
     },
 };
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait ProvisioningCommandService: Send + Sync {

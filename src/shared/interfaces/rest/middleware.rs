@@ -69,17 +69,18 @@ pub async fn rate_limit_middleware(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    // Global IP Limit: 3 req/sec (Swagger: 20 req/sec to allow asset burst)
+    // Global IP Limit: keep reasonably high to avoid blocking normal frontend bursts.
+    // Specific sensitive endpoints have stricter per-path limits below.
     let global_key = if is_swagger {
         format!("rl:ip:swagger:{}", ip)
     } else {
         format!("rl:ip:{}", ip)
     };
-    let (limit, rate) = if is_swagger { (20, 20.0) } else { (3, 3.0) };
+    let (limit, rate) = if is_swagger { (40, 40.0) } else { (20, 20.0) };
 
-    // Temporary ban for abusive IPs (seconds)
     let ban_key = format!("rl:ban:ip:{}", ip);
     if is_ip_banned(&state.redis, &ban_key).await {
+        tracing::warn!("IP temporarily banned: ip={} path={}", ip, path);
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
 
@@ -92,8 +93,13 @@ pub async fn rate_limit_middleware(
                 path,
                 retry_ms
             );
-            // Ban IP for 60 seconds after global limit breach
-            let _ = ban_ip(&state.redis, &ban_key, 60).await;
+
+            let is_banned =
+                register_global_excess_and_maybe_ban(&state.redis, &ip, &ban_key).await;
+            if is_banned {
+                tracing::warn!("Applied temporary ban due to repeated global bursts: ip={}", ip);
+            }
+
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
         Err(err) => {
@@ -215,20 +221,34 @@ async fn is_ip_banned(client: &redis::Client, key: &str) -> bool {
         let exists: Result<bool, _> = conn.exists(key).await;
         return exists.unwrap_or(false);
     }
+
     false
 }
 
-async fn ban_ip(client: &redis::Client, key: &str, ttl_seconds: u64) -> bool {
+async fn register_global_excess_and_maybe_ban(
+    client: &redis::Client,
+    ip: &str,
+    ban_key: &str,
+) -> bool {
+    let exceed_key = format!("rl:ip:exceeded:{}", ip);
+
     if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-        let set_result: Result<(), _> = redis::cmd("SET")
-            .arg(key)
-            .arg("1")
-            .arg("EX")
-            .arg(ttl_seconds)
-            .arg("NX")
-            .query_async(&mut conn)
-            .await;
-        return set_result.is_ok();
+        let count: Result<u64, _> = conn.incr(&exceed_key, 1).await;
+        let count = match count {
+            Ok(value) => value,
+            Err(_) => return false,
+        };
+
+        if count == 1 {
+            let _: Result<(), _> = conn.expire(&exceed_key, 30).await;
+        }
+
+        if count >= 25 {
+            let set_ban: Result<(), _> = conn.set_ex(ban_key, "1", 300).await;
+            let _: Result<(), _> = conn.del(&exceed_key).await;
+            return set_ban.is_ok();
+        }
     }
+
     false
 }

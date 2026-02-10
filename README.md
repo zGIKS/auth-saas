@@ -6,6 +6,7 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
 
 - Configuración multi-tenant con estrategia `shared` (1 DB compartida, 1 schema por tenant) y claves `anon_key`.
 - Registro, verificación de email, login, refresh/logout, recuperación de contraseña y Google OAuth.
+- Módulo `AdminIdentity` para login admin, bootstrap inicial y recovery de credenciales.
 - Redis para sesiones, refresh tokens, rate limiting y lockout.
 - Circuit breaker y mensajería SMTP para notificaciones seguras.
 - Documentación OpenAPI pública (`/swagger-ui` y `/api-docs/openapi.json`).
@@ -41,6 +42,21 @@ Variables imprescindibles (usa `.env`):
 - `SMTP_*`: servidor SMTP para correos transaccionales.
 - `LOCKOUT_THRESHOLD`, `LOCKOUT_DURATION_SECONDS`: control de bloqueo por intentos fallidos.
 
+## Comandos operativos
+
+- Ejecutar API:
+  ```bash
+  cargo run
+  ```
+- Crear admin inicial (solo primera vez):
+  ```bash
+  cargo run --bin admin_identity_bootstrap_cli
+  ```
+- Recuperar acceso admin (reemplaza username/password del admin unico):
+  ```bash
+  cargo run --bin admin_identity_recover_cli
+  ```
+
 Consulta `.env` para un set completo de ejemplo local.
 
 ## Endpoints principales
@@ -48,9 +64,12 @@ Consulta `.env` para un set completo de ejemplo local.
 Además del Swagger (`/swagger-ui`), el backend expone:
 
 - `/api/v1/tenants`: creación/consulta de tenants y sus claves anon.
+- `/api/v1/admin/login`: login de administrador (JWT admin).
 - `/api/v1/auth/*`: login, logout, refresh, verificación y federación con Google.
 - `/api/v1/identity/*`: flujo completo de registro, confirmación y recuperación de contraseña.
 - `/api/v1/auth/google/*`: inicio de OAuth y claim de tokens intercambiados en Redis.
+
+`POST /api/v1/tenants` requiere JWT de admin en `Authorization: Bearer <token>`.
 
 Para detalles completos de payloads, errores y flujos sugeridos revisa `docs/`.
 
@@ -59,6 +78,8 @@ Para detalles completos de payloads, errores y flujos sugeridos revisa `docs/`.
 Los documentos en `docs/` explican cada módulo con visión general, endpoints, variables, errores, ejemplos y referencias de código:
 
 - `identity-bc.md`: registro/confirmación, reset, envío de correos, interacción con Redis y lockout.
+- `admin-identity-bc.md`: login admin, bootstrap/recovery por CLI y guard para creación de tenants.
+- `commands.md`: comandos operativos de ejecución, bootstrap/recovery y calidad de código.
 - `auth-bc.md`: login, refresh, logout, verificación de JWT y Google OAuth (incluye ejemplos de request/respuesta).
 - `tenancy-bc.md`: creación de tenants, estrategia shared (schema por tenant), generación de `anon_key`.
 - `federation-bc.md`: flujo completo de Google OAuth, CSRF y tokens temporales.

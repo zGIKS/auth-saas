@@ -1,14 +1,17 @@
-use async_trait::async_trait;
-use sea_orm::*;
+use super::model::{self, Entity as TenantEntity};
 use crate::tenancy::domain::{
     error::TenantError,
     model::{
         tenant::Tenant,
-        value_objects::{tenant_id::TenantId, tenant_name::TenantName, db_strategy::DbStrategy, auth_config::AuthConfig},
+        value_objects::{
+            auth_config::AuthConfig, db_strategy::DbStrategy, tenant_id::TenantId,
+            tenant_name::TenantName,
+        },
     },
     repositories::tenant_repository::TenantRepository,
 };
-use super::model::{self, Entity as TenantEntity};
+use async_trait::async_trait;
+use sea_orm::*;
 
 pub struct PostgresTenantRepository {
     db: DatabaseConnection,
@@ -64,7 +67,7 @@ impl TenantRepository for PostgresTenantRepository {
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
-         match model {
+        match model {
             Some(m) => Ok(Some(map_model_to_entity(m)?)),
             None => Ok(None),
         }

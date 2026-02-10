@@ -1,17 +1,17 @@
+use crate::shared::interfaces::rest::app_state::AppState;
+use crate::tenancy::domain::model::tenant::Tenant;
+use crate::tenancy::domain::model::value_objects::tenant_id::TenantId;
+use crate::tenancy::domain::repositories::tenant_repository::TenantRepository;
+use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
 use axum::{
     extract::{Request, State},
-    http::{StatusCode, HeaderMap},
+    http::{HeaderMap, StatusCode},
     middleware::Next,
     response::Response,
 };
-use uuid::Uuid;
-use jsonwebtoken::{decode, DecodingKey, Validation};
+use jsonwebtoken::{DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
-use crate::shared::interfaces::rest::app_state::AppState;
-use crate::tenancy::domain::model::value_objects::tenant_id::TenantId;
-use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
-use crate::tenancy::domain::repositories::tenant_repository::TenantRepository;
-use crate::tenancy::domain::model::tenant::Tenant;
+use uuid::Uuid;
 
 // Key for storing Tenant in Axum extensions
 #[derive(Clone, Debug)]
@@ -35,7 +35,6 @@ pub async fn tenant_resolver(
     mut request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    
     // 1. Try to find API Key in headers (preferred)
     let token_str_opt = if let Some(apikey) = headers.get("apikey") {
         apikey.to_str().ok()
@@ -56,19 +55,23 @@ pub async fn tenant_resolver(
             token_str,
             &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
             &validation,
-        ).map_err(|e| {
+        )
+        .map_err(|e| {
             tracing::warn!("Invalid API Key attempt: {}", e);
             StatusCode::UNAUTHORIZED
         })?;
-        
+
         TenantId::new(token_data.claims.tenant_id)
     } else {
         // 2b. Fallback: Check X-Tenant-ID (Legacy/Dev support)
         if let Some(tenant_id_header) = headers.get("X-Tenant-ID") {
-             tracing::debug!("Using Legacy X-Tenant-ID header");
-             let tenant_id_str = tenant_id_header.to_str().map_err(|_| StatusCode::BAD_REQUEST)?;
-             let tenant_uuid = Uuid::parse_str(tenant_id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-             TenantId::new(tenant_uuid)
+            tracing::debug!("Using Legacy X-Tenant-ID header");
+            let tenant_id_str = tenant_id_header
+                .to_str()
+                .map_err(|_| StatusCode::BAD_REQUEST)?;
+            let tenant_uuid =
+                Uuid::parse_str(tenant_id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
+            TenantId::new(tenant_uuid)
         } else {
             // No credentials found
             return Err(StatusCode::UNAUTHORIZED);
@@ -77,10 +80,11 @@ pub async fn tenant_resolver(
 
     // 3. Resolve Tenant from Database
     let repository = PostgresTenantRepository::new(state.db.clone());
-    
-    // Using the repository directly here is an accepted shortcut for middleware 
+
+    // Using the repository directly here is an accepted shortcut for middleware
     // in modular monoliths to avoid boilerplate services just for fetching.
-    let tenant = repository.find_by_id(&tenant_id)
+    let tenant = repository
+        .find_by_id(&tenant_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::UNAUTHORIZED)?; // Tenant not found

@@ -19,5 +19,9 @@ async fn test_session_repository_circuit_breaker_integration() {
     // 2. Circuit should be OPEN
     let result = repo.create_session(user_id, "test_jti").await;
     let err_msg = format!("{:?}", result);
-    assert!(err_msg.contains("Circuit breaker open"), "Expected CircuitOpen error, got {}", err_msg);
+    assert!(
+        err_msg.contains("Circuit breaker open"),
+        "Expected CircuitOpen error, got {}",
+        err_msg
+    );
 }

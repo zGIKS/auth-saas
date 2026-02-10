@@ -1,9 +1,9 @@
-use async_trait::async_trait;
+use crate::tenancy::domain::error::TenantError;
 use crate::tenancy::domain::model::{
     tenant::Tenant,
     value_objects::{tenant_id::TenantId, tenant_name::TenantName},
 };
-use crate::tenancy::domain::error::TenantError;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait TenantRepository: Send + Sync {

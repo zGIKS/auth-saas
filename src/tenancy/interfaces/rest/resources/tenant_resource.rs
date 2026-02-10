@@ -1,11 +1,8 @@
+use crate::tenancy::domain::model::{tenant::Tenant, value_objects::auth_config::AuthConfig};
+use crate::tenancy::interfaces::rest::resources::db_strategy_type_resource::DbStrategyTypeResource;
 use serde::Serialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
-use crate::tenancy::domain::model::{
-    tenant::Tenant,
-    value_objects::auth_config::AuthConfig,
-};
-use crate::tenancy::interfaces::rest::resources::db_strategy_type_resource::DbStrategyTypeResource;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct TenantResource {

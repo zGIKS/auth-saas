@@ -132,7 +132,7 @@ impl SessionRepository for RedisSessionRepository {
         // Transaction/Pipeline emulation via simple sequential await
         // If strict atomicity is needed, usage of redis::pipe().atomic() is preferred
         // but here we just wrap the block for CB.
-        
+
         let result = async {
             let _: () = con
                 .set_ex(key.clone(), user_id.to_string(), ttl_seconds)
@@ -355,9 +355,11 @@ impl SessionRepository for RedisSessionRepository {
             Ok(timestamp_str) => {
                 self.circuit_breaker.on_success().await;
                 match timestamp_str {
-                    Some(s) => Ok(Some(s.parse::<u64>().map_err(|e| {
-                        Box::new(e) as Box<dyn Error + Send + Sync>
-                    })?)),
+                    Some(s) => {
+                        Ok(Some(s.parse::<u64>().map_err(|e| {
+                            Box::new(e) as Box<dyn Error + Send + Sync>
+                        })?))
+                    }
                     None => Ok(None),
                 }
             }

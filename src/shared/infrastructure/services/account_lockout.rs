@@ -51,10 +51,10 @@ impl AccountLockoutVerifier for AccountLockoutService {
 
         // 1. Check Global Lock (lockout:email)
         let global_lock_key = format!("lockout:{}", identity);
-        
+
         // Combine operations if possible, but for clarity keeping sequential checks
         // We wrap the logic to handle success/failure for CB
-        
+
         let result = async {
             let global_ttl: i64 = conn.ttl(&global_lock_key).await?;
             if global_ttl > 0 {
@@ -70,7 +70,8 @@ impl AccountLockoutVerifier for AccountLockoutService {
                 }
             }
             Ok(None)
-        }.await;
+        }
+        .await;
 
         match result {
             Ok(Some(ttl)) => {
@@ -141,7 +142,8 @@ impl AccountLockoutVerifier for AccountLockoutService {
                 return Ok::<bool, RedisError>(true);
             }
             Ok(false)
-        }.await;
+        }
+        .await;
 
         match result {
             Ok(locked) => {
@@ -173,7 +175,7 @@ impl AccountLockoutVerifier for AccountLockoutService {
         };
 
         let global_attempts = format!("login_failures:{}", identity);
-        
+
         let result = async {
             let _: () = conn.del(&global_attempts).await?;
 
@@ -182,7 +184,8 @@ impl AccountLockoutVerifier for AccountLockoutService {
                 let _: () = conn.del(&ip_attempts).await?;
             }
             Ok::<(), RedisError>(())
-        }.await;
+        }
+        .await;
 
         match result {
             Ok(_) => {
@@ -199,6 +202,9 @@ impl AccountLockoutVerifier for AccountLockoutService {
 
 impl AccountLockoutService {
     pub fn new(client: Client, circuit_breaker: AppCircuitBreaker) -> Self {
-        Self { client, circuit_breaker }
+        Self {
+            client,
+            circuit_breaker,
+        }
     }
 }

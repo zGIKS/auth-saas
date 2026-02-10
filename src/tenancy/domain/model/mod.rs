@@ -1,5 +1,5 @@
-pub mod value_objects;
 pub mod commands;
-pub mod queries;
 pub mod events;
+pub mod queries;
 pub mod tenant;
+pub mod value_objects;

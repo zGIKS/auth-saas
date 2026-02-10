@@ -1,4 +1,5 @@
-use utoipa::OpenApi;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::{Modify, OpenApi};
 
 pub mod iam;
 pub mod messaging;
@@ -9,6 +10,7 @@ pub mod tenancy;
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin,
         iam::identity::interfaces::rest::controllers::identity_controller::register_identity,
         iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration,
         iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset,
@@ -25,6 +27,8 @@ pub mod tenancy;
     ),
     components(
         schemas(
+            iam::admin_identity::interfaces::rest::resources::admin_login_resource::AdminLoginRequest,
+            iam::admin_identity::interfaces::rest::resources::admin_login_resource::AdminLoginResponse,
             iam::identity::interfaces::rest::resources::register_identity_resource::RegisterIdentityRequest,
             iam::identity::interfaces::rest::resources::register_identity_resource::RegisterIdentityResponse,
             iam::identity::domain::model::commands::confirm_registration_command::ConfirmRegistrationCommand,
@@ -47,9 +51,30 @@ pub mod tenancy;
         )
     ),
     tags(
+        (name = "admin-auth", description = "Admin authentication"),
         (name = "identity", description = "Identity management"),
         (name = "auth", description = "Authentication"),
         (name = "tenancy", description = "Tenant management")
-    )
+    ),
+    modifiers(&AdminSecurityAddon)
 )]
 pub struct ApiDoc;
+
+struct AdminSecurityAddon;
+
+impl Modify for AdminSecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "admin_bearer",
+                SecurityScheme::Http(
+                    HttpBuilder::new()
+                        .scheme(HttpAuthScheme::Bearer)
+                        .bearer_format("JWT")
+                        .description(Some("Admin JWT token from POST /api/v1/admin/login"))
+                        .build(),
+                ),
+            );
+        }
+    }
+}
