@@ -1,4 +1,5 @@
-use utoipa::OpenApi;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::{Modify, OpenApi};
 
 pub mod iam;
 pub mod messaging;
@@ -54,6 +55,26 @@ pub mod tenancy;
         (name = "identity", description = "Identity management"),
         (name = "auth", description = "Authentication"),
         (name = "tenancy", description = "Tenant management")
-    )
+    ),
+    modifiers(&AdminSecurityAddon)
 )]
 pub struct ApiDoc;
+
+struct AdminSecurityAddon;
+
+impl Modify for AdminSecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "admin_bearer",
+                SecurityScheme::Http(
+                    HttpBuilder::new()
+                        .scheme(HttpAuthScheme::Bearer)
+                        .bearer_format("JWT")
+                        .description(Some("Admin JWT token from POST /api/v1/admin/login"))
+                        .build(),
+                ),
+            );
+        }
+    }
+}

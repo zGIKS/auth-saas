@@ -152,7 +152,15 @@ async fn main() {
                 ),
             ),
         )
-        .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant).delete(tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant))
+        .route(
+            "/api/v1/tenants/:id",
+            get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant)
+                .delete(tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                )),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state);

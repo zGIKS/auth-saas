@@ -47,6 +47,7 @@ struct Claims {
     post,
     path = "/api/v1/tenants",
     tag = "tenancy",
+    security(("admin_bearer" = [])),
     request_body = CreateTenantRequest,
     responses(
         (status = 201, description = "Tenant created successfully", body = CreateTenantResponse),
@@ -118,11 +119,13 @@ pub async fn create_tenant(
     delete,
     path = "/api/v1/tenants/{id}",
     tag = "tenancy",
+    security(("admin_bearer" = [])),
     params(
         ("id" = Uuid, Path, description = "Tenant ID")
     ),
     responses(
         (status = 204, description = "Tenant deleted"),
+        (status = 401, description = "Admin authentication required"),
         (status = 404, description = "Tenant not found"),
         (status = 500, description = "Internal Server Error")
     )
@@ -176,11 +179,13 @@ fn tenant_schema_name(tenant_name: &str) -> String {
     get,
     path = "/api/v1/tenants/{id}",
     tag = "tenancy",
+    security(("admin_bearer" = [])),
     params(
         ("id" = Uuid, Path, description = "Tenant ID")
     ),
     responses(
         (status = 200, description = "Tenant found", body = TenantResource),
+        (status = 401, description = "Admin authentication required"),
         (status = 404, description = "Tenant not found"),
         (status = 500, description = "Internal Server Error")
     )
