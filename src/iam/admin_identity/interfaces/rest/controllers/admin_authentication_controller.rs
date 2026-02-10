@@ -1,9 +1,12 @@
 use axum::{
     Json,
-    extract::{Json as JsonExtractor, State},
+    extract::{ConnectInfo, Json as JsonExtractor, State},
     http::StatusCode,
     response::IntoResponse,
 };
+use hex;
+use sha2::{Digest, Sha256};
+use std::net::SocketAddr;
 use validator::Validate;
 
 use crate::{
@@ -14,8 +17,15 @@ use crate::{
                 query_services::admin_identity_query_service_impl::AdminIdentityQueryServiceImpl,
             },
             domain::{
-                error::AdminIdentityError, model::commands::admin_login_command::AdminLoginCommand,
-                services::admin_identity_command_service::AdminIdentityCommandService,
+                error::AdminIdentityError,
+                model::{
+                    commands::admin_login_command::AdminLoginCommand,
+                    queries::find_admin_by_username_query::FindAdminByUsernameQuery,
+                },
+                services::{
+                    admin_identity_command_service::AdminIdentityCommandService,
+                    admin_identity_query_service::AdminIdentityQueryService,
+                },
             },
             infrastructure::persistence::repositories::postgres::admin_account_repository_impl::AdminAccountRepositoryImpl,
             interfaces::rest::resources::admin_login_resource::{
@@ -24,12 +34,17 @@ use crate::{
         },
         authentication::infrastructure::services::jwt_token_service::JwtTokenService,
     },
-    shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse},
+    shared::{
+        infrastructure::services::account_lockout::{
+            AccountLockoutService, AccountLockoutVerifier, LockoutError,
+        },
+        interfaces::rest::{app_state::AppState, error_response::ErrorResponse},
+    },
 };
 
 #[utoipa::path(
     post,
-    path = "/api/v1/admin/auth/login",
+    path = "/api/v1/admin/login",
     tag = "admin-auth",
     request_body(
         content = AdminLoginRequest,
@@ -39,17 +54,32 @@ use crate::{
         (status = 200, description = "Admin login successful", body = AdminLoginResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
         (status = 401, description = "Invalid admin credentials", body = ErrorResponse),
+        (status = 429, description = "Admin account temporarily locked", body = ErrorResponse),
         (status = 500, description = "Internal server error", body = ErrorResponse)
     )
 )]
 pub async fn login_admin(
     State(state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     JsonExtractor(resource): JsonExtractor<AdminLoginRequest>,
 ) -> impl IntoResponse {
     if let Err(error) = resource.validate() {
         return ErrorResponse::new(error.to_string())
             .with_code(StatusCode::BAD_REQUEST.as_u16())
             .into_response();
+    }
+
+    let username_raw = resource.username.clone();
+    let identity_key = hash_admin_identity(&username_raw);
+    let ip_address = Some(addr.ip().to_string());
+
+    let lockout_service =
+        AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
+    if let Err(error) = lockout_service
+        .check_locked(&identity_key, ip_address.as_deref())
+        .await
+    {
+        return lockout_error_response(error);
     }
 
     let command = match AdminLoginCommand::new(resource.username, resource.password) {
@@ -72,8 +102,38 @@ pub async fn login_admin(
         AdminIdentityCommandServiceImpl::new(command_repository, query_service, token_service);
 
     match command_service.handle_admin_login(command).await {
-        Ok(token) => (StatusCode::OK, Json(AdminLoginResponse { token })).into_response(),
+        Ok(token) => {
+            let _ = lockout_service
+                .reset_failure(&identity_key, ip_address.as_deref())
+                .await;
+            (StatusCode::OK, Json(AdminLoginResponse { token })).into_response()
+        }
         Err(AdminIdentityError::InvalidCredentials) => {
+            let lookup_repository = AdminAccountRepositoryImpl::new(state.db.clone());
+            let lookup_service = AdminIdentityQueryServiceImpl::new(lookup_repository);
+
+            let admin_exists =
+                match FindAdminByUsernameQuery::from_hashed_username(identity_key.clone()) {
+                    Ok(query) => lookup_service
+                        .handle_find_admin_by_username(query)
+                        .await
+                        .ok()
+                        .flatten()
+                        .is_some(),
+                    Err(_) => false,
+                };
+
+            if admin_exists {
+                let _ = lockout_service
+                    .register_failure(
+                        &identity_key,
+                        ip_address.as_deref(),
+                        state.lockout_threshold,
+                        state.lockout_duration_seconds,
+                    )
+                    .await;
+            }
+
             ErrorResponse::new("Invalid admin credentials")
                 .with_code(StatusCode::UNAUTHORIZED.as_u16())
                 .into_response()
@@ -84,5 +144,22 @@ pub async fn login_admin(
                 .with_code(StatusCode::INTERNAL_SERVER_ERROR.as_u16())
                 .into_response()
         }
+    }
+}
+
+fn hash_admin_identity(value: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(value.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+fn lockout_error_response(error: LockoutError) -> axum::response::Response {
+    match error {
+        LockoutError::Locked(_) => ErrorResponse::new("Admin account temporarily locked")
+            .with_code(StatusCode::TOO_MANY_REQUESTS.as_u16())
+            .into_response(),
+        LockoutError::CircuitOpen | LockoutError::Redis(_) => ErrorResponse::service_unavailable()
+            .with_code(StatusCode::SERVICE_UNAVAILABLE.as_u16())
+            .into_response(),
     }
 }

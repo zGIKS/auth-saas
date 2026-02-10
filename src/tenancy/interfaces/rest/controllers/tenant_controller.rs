@@ -51,6 +51,7 @@ struct Claims {
     responses(
         (status = 201, description = "Tenant created successfully", body = CreateTenantResponse),
         (status = 400, description = "Bad Request"),
+        (status = 401, description = "Admin authentication required"),
         (status = 409, description = "Tenant already exists"),
         (status = 500, description = "Internal Server Error")
     )

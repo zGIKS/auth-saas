@@ -139,11 +139,19 @@ async fn main() {
 
     let app = Router::new()
         .merge(tenant_aware_routes)
-        .route("/api/v1/admin/auth/login", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin))
+        .route("/api/v1/admin/login", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin))
         // Public / Tenant-Agnostic Routes
         .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         // Tenancy Routes
-        .route("/api/v1/tenants", post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant))
+        .route(
+            "/api/v1/tenants",
+            post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant).route_layer(
+                axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                ),
+            ),
+        )
         .route("/api/v1/tenants/:id", get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant).delete(tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant))
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))

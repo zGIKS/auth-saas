@@ -13,15 +13,17 @@ Depende de:
 
 ### `POST /api/v1/tenants`
 - **Recurso**: `CreateTenantRequest { name, google_client_id?, google_client_secret? }`.
+- **Auth requerida**: JWT de admin en `Authorization: Bearer <token>`.
 - **Validaciones**:
   - `name` alfanumérico/hyphen/underscore (3-30).
 - **Flujo**:
-  1. El controlador normaliza el nombre y deriva el `schema` del tenant (`tenant_<name_normalizado>`).
-  2. Inicializa el schema en la base de datos compartida y crea tablas del tenant (tabla `users`).
-  3. `CreateTenantCommand::new` valida nombre y schema, genera `TenantName`, construye estrategia shared, genera JWT secret (128 hex chars) y crea `AuthConfig`.
-  4. `TenantCommandServiceImpl` valida unicidad y guarda el tenant con `TenantRepository`.
-  5. Devuelve `CreateTenantResponse { id, anon_key }`, donde `anon_key` es un JWT firmado con el secret global del backend (`state.jwt_secret`) con claims `{ iss: "saas-system", tenant_id, role: "anon" }`.
-- **Errores**: 400 (validación), 409 (tenant ya existe), 500 (fallos de infraestructura).
+  1. Middleware `require_admin_jwt` valida firma y que `sub` exista en `admin_accounts`.
+  2. El controlador normaliza el nombre y deriva el `schema` del tenant (`tenant_<name_normalizado>`).
+  3. Inicializa el schema en la base de datos compartida y crea tablas del tenant (tabla `users`).
+  4. `CreateTenantCommand::new` valida nombre y schema, genera `TenantName`, construye estrategia shared, genera JWT secret (128 hex chars) y crea `AuthConfig`.
+  5. `TenantCommandServiceImpl` valida unicidad y guarda el tenant con `TenantRepository`.
+  6. Devuelve `CreateTenantResponse { id, anon_key }`, donde `anon_key` es un JWT firmado con el secret global del backend (`state.jwt_secret`) con claims `{ iss: "saas-system", tenant_id, role: "anon" }`.
+- **Errores**: 400 (validación), 401 (JWT admin faltante/inválido), 409 (tenant ya existe), 500 (fallos de infraestructura).
 
 ### `GET /api/v1/tenants/{id}`
 - **Path**: `id` es UUID del tenant.
@@ -43,7 +45,7 @@ Depende de:
 
 ## Flujo común para nuevos tenants
 
-1. **Crear** → `POST /api/v1/tenants` con nombre; el backend crea schema + tablas del tenant en la DB compartida.
+1. **Crear** → autentica admin en `POST /api/v1/admin/login` y usa ese JWT para llamar `POST /api/v1/tenants`; el backend crea schema + tablas del tenant en la DB compartida.
 2. **Consumir** → Frontend almacena `anon_key` del response y lo adjunta en headers (`apikey`/`Authorization`) para resolver el tenant. Luego puede usar `/auth` y `/identity` dentro del contexto resuelto.
 
 ## Referencias de código
