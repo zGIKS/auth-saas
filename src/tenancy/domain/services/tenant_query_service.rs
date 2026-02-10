@@ -1,9 +1,6 @@
-use async_trait::async_trait;
-use crate::tenancy::domain::model::{
-    queries::get_tenant_query::GetTenantQuery,
-    tenant::Tenant,
-};
 use crate::tenancy::domain::error::TenantError;
+use crate::tenancy::domain::model::{queries::get_tenant_query::GetTenantQuery, tenant::Tenant};
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait TenantQueryService: Send + Sync {

@@ -1,8 +1,5 @@
 use crate::tenancy::domain::model::value_objects::{
-    tenant_id::TenantId,
-    tenant_name::TenantName,
-    db_strategy::DbStrategy,
-    auth_config::AuthConfig,
+    auth_config::AuthConfig, db_strategy::DbStrategy, tenant_id::TenantId, tenant_name::TenantName,
 };
 use chrono::{DateTime, Utc};
 
@@ -45,7 +42,7 @@ impl Tenant {
         self.active = false;
         self.updated_at = Utc::now();
     }
-     
+
     pub fn activate(&mut self) {
         self.active = true;
         self.updated_at = Utc::now();

@@ -1,15 +1,15 @@
-use async_trait::async_trait;
 use crate::provisioning::domain::{
     error::DomainError,
     model::commands::{
-        provision_tenant_resources_command::ProvisionTenantResourcesCommand,
         deprovision_tenant_resources_command::DeprovisionTenantResourcesCommand,
+        provision_tenant_resources_command::ProvisionTenantResourcesCommand,
     },
     services::{
         provisioning_command_service::ProvisioningCommandService,
         schema_provisioner::SchemaProvisioner,
     },
 };
+use async_trait::async_trait;
 
 pub struct ProvisioningCommandServiceImpl<S: SchemaProvisioner> {
     schema_provisioner: S,
@@ -28,10 +28,10 @@ impl<S: SchemaProvisioner> ProvisioningCommandService for ProvisioningCommandSer
         command: ProvisionTenantResourcesCommand,
     ) -> Result<(), DomainError> {
         let schema_name = command.schema_name.value();
-        
+
         // 1. Create Schema
         self.schema_provisioner.create_schema(schema_name).await?;
-        
+
         // 2. Run Migrations (Create Tables)
         self.schema_provisioner.run_migrations(schema_name).await?;
 
@@ -45,7 +45,7 @@ impl<S: SchemaProvisioner> ProvisioningCommandService for ProvisioningCommandSer
         command: DeprovisionTenantResourcesCommand,
     ) -> Result<(), DomainError> {
         let schema_name = command.schema_name.value();
-        
+
         // 1. Drop Schema (CASCADE)
         self.schema_provisioner.drop_schema(schema_name).await?;
 

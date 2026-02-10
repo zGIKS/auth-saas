@@ -1,5 +1,5 @@
-use async_trait::async_trait;
 use crate::provisioning::domain::error::DomainError;
+use async_trait::async_trait;
 
 #[async_trait]
 pub trait SchemaProvisioner: Send + Sync {

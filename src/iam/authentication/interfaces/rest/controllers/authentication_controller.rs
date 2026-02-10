@@ -30,8 +30,8 @@ use crate::iam::identity::{
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutService;
 use crate::shared::interfaces::rest::app_state::AppState;
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
-use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
+use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use sea_orm::{Database, DatabaseConnection};
 
 use axum::{
@@ -74,11 +74,17 @@ pub async fn signin(
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     // Use tenant-specific JWT secret instead of global one
-    let token_service =
-        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
-    let lockout_service = AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
+    let token_service = JwtTokenService::new(
+        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
+        state.session_duration_seconds,
+    );
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
+    let lockout_service =
+        AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -139,11 +145,17 @@ pub async fn logout(
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     // Use tenant-specific JWT secret instead of global one
-    let token_service =
-        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
-    let lockout_service = AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
+    let token_service = JwtTokenService::new(
+        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
+        state.session_duration_seconds,
+    );
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
+    let lockout_service =
+        AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -197,11 +209,17 @@ pub async fn refresh_token(
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     // Use tenant-specific JWT secret instead of global one
-    let token_service =
-        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
-    let lockout_service = AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
+    let token_service = JwtTokenService::new(
+        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
+        state.session_duration_seconds,
+    );
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
+    let lockout_service =
+        AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -257,10 +275,15 @@ pub async fn verify_token(
     }
 
     // Use tenant-specific JWT secret instead of global one
-    let token_service =
-        JwtTokenService::new(tenant_ctx.tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let token_service = JwtTokenService::new(
+        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
+        state.session_duration_seconds,
+    );
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
 
     let service = AuthenticationQueryServiceImpl::new(token_service, session_repo);
 

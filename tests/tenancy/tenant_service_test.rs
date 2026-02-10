@@ -1,24 +1,26 @@
-use mockall::mock;
-use axum::async_trait;
-use uuid::Uuid;
-use jsonwebtoken::{decode, DecodingKey, Validation, Algorithm};
-use serde::{Deserialize, Serialize};
+use auth_service::provisioning::domain::error::DomainError;
+use auth_service::provisioning::interfaces::acl::provisioning_facade::ProvisioningFacade;
+use auth_service::tenancy::application::command_services::tenant_command_service_impl::TenantCommandServiceImpl;
 use auth_service::tenancy::domain::{
     error::TenantError,
     model::{
-        tenant::Tenant,
-        value_objects::{tenant_id::TenantId, tenant_name::TenantName, db_strategy::DbStrategy, auth_config::AuthConfig},
         commands::{
-            create_tenant_command::CreateTenantCommand,
-            delete_tenant_command::DeleteTenantCommand,
+            create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
+        },
+        tenant::Tenant,
+        value_objects::{
+            auth_config::AuthConfig, db_strategy::DbStrategy, tenant_id::TenantId,
+            tenant_name::TenantName,
         },
     },
     repositories::tenant_repository::TenantRepository,
     services::tenant_command_service::TenantCommandService,
 };
-use auth_service::tenancy::application::command_services::tenant_command_service_impl::TenantCommandServiceImpl;
-use auth_service::provisioning::interfaces::acl::provisioning_facade::ProvisioningFacade;
-use auth_service::provisioning::domain::error::DomainError;
+use axum::async_trait;
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode};
+use mockall::mock;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // Define Mock Repository
 mock! {
@@ -51,19 +53,19 @@ async fn test_create_tenant_success() {
     let jwt_secret = "test_secret_longer_than_32_bytes_for_security_reasons".to_string();
 
     // Expectation: find_by_name returns None (Tenant doesn't exist)
-    mock_repo.expect_find_by_name()
+    mock_repo
+        .expect_find_by_name()
         .times(1)
         .returning(|_| Ok(None));
 
     // Expectation: provision_tenant called successfully
-    mock_provisioner.expect_provision_tenant()
+    mock_provisioner
+        .expect_provision_tenant()
         .times(1)
         .returning(|_, _| Ok(()));
 
     // Expectation: save returns the tenant
-    mock_repo.expect_save()
-        .times(1)
-        .returning(Ok);
+    mock_repo.expect_save().times(1).returning(Ok);
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
 
@@ -72,13 +74,14 @@ async fn test_create_tenant_success() {
         "tenant_test_project".to_string(),
         None,
         None,
-    ).expect("Command should be valid");
+    )
+    .expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
     assert!(result.is_ok());
     let (tenant, key) = result.unwrap();
-    
+
     assert_eq!(tenant.name.value(), "test-project");
     match tenant.db_strategy {
         DbStrategy::Shared { schema } => {
@@ -96,21 +99,22 @@ async fn test_create_tenant_already_exists() {
     let jwt_secret = "test_secret_must_be_very_long_to_pass_validation_policies_123".to_string();
 
     // Expectation: find_by_name returns Some (Tenant exists)
-    mock_repo.expect_find_by_name()
-        .times(1)
-        .returning(|name| {
-            // Return a dummy tenant
-             Ok(Some(Tenant::new(
-                TenantId::random(),
-                name.clone(),
-                DbStrategy::Shared { schema: "tenant_existing_project".to_string() },
-                AuthConfig::new(
-                    "dummy_secret_also_needs_to_be_long_123456789".to_string(), 
-                    None, 
-                    None
-                ).unwrap()
-            )))
-        });
+    mock_repo.expect_find_by_name().times(1).returning(|name| {
+        // Return a dummy tenant
+        Ok(Some(Tenant::new(
+            TenantId::random(),
+            name.clone(),
+            DbStrategy::Shared {
+                schema: "tenant_existing_project".to_string(),
+            },
+            AuthConfig::new(
+                "dummy_secret_also_needs_to_be_long_123456789".to_string(),
+                None,
+                None,
+            )
+            .unwrap(),
+        )))
+    });
 
     // Expectation: save should NOT be called
     mock_repo.expect_save().times(0);
@@ -122,7 +126,8 @@ async fn test_create_tenant_already_exists() {
         "tenant_existing_project".to_string(),
         None,
         None,
-    ).expect("Command should be valid");
+    )
+    .expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
@@ -165,17 +170,20 @@ async fn test_security_generated_jwt_structure() {
     let jwt_secret = "super_secret_key_for_testing_1234567890".to_string();
 
     mock_repo.expect_find_by_name().returning(|_| Ok(None));
-    mock_provisioner.expect_provision_tenant().returning(|_, _| Ok(()));
+    mock_provisioner
+        .expect_provision_tenant()
+        .returning(|_, _| Ok(()));
     mock_repo.expect_save().returning(Ok);
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret.clone());
-    
+
     let command = CreateTenantCommand::new(
         "secure-app".to_string(),
         "tenant_secure_app".to_string(),
         None,
         None,
-    ).unwrap();
+    )
+    .unwrap();
 
     let (tenant, key) = service.create_tenant(command).await.unwrap();
 
@@ -187,10 +195,13 @@ async fn test_security_generated_jwt_structure() {
     let decoded = decode::<TestClaims>(
         &key,
         &DecodingKey::from_secret(jwt_secret.as_bytes()),
-        &validation
+        &validation,
     );
 
-    assert!(decoded.is_ok(), "JWT should be valid and signed with the correct secret");
+    assert!(
+        decoded.is_ok(),
+        "JWT should be valid and signed with the correct secret"
+    );
     let claims = decoded.unwrap().claims;
 
     assert_eq!(claims.tenant_id, tenant.id.value());
@@ -201,12 +212,8 @@ async fn test_security_generated_jwt_structure() {
 #[tokio::test]
 async fn test_rejects_empty_schema_name() {
     // Command validation test, doesn't need service
-    let command = CreateTenantCommand::new(
-        "my-awesome-saas".to_string(),
-        "   ".to_string(),
-        None,
-        None,
-    );
+    let command =
+        CreateTenantCommand::new("my-awesome-saas".to_string(), "   ".to_string(), None, None);
 
     assert!(command.is_err(), "Should fail due to empty schema name");
     match command.unwrap_err() {
@@ -226,30 +233,40 @@ async fn test_delete_tenant_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("to-delete".to_string()).unwrap(),
-        DbStrategy::Shared { schema: "tenant_to_delete".to_string() },
-        AuthConfig::new("secret_key_that_is_long_enough_32_chars".to_string(), None, None).unwrap(),
+        DbStrategy::Shared {
+            schema: "tenant_to_delete".to_string(),
+        },
+        AuthConfig::new(
+            "secret_key_that_is_long_enough_32_chars".to_string(),
+            None,
+            None,
+        )
+        .unwrap(),
     );
 
     // Expect find_by_id
-    mock_repo.expect_find_by_id()
+    mock_repo
+        .expect_find_by_id()
         .withf(move |id| id.value() == tenant_id)
         .times(1)
         .returning(move |_| Ok(Some(tenant.clone())));
 
     // Expect deprovision
-    mock_provisioner.expect_deprovision_tenant()
+    mock_provisioner
+        .expect_deprovision_tenant()
         .withf(move |id, schema| id == &tenant_id.to_string() && schema == "tenant_to_delete")
         .times(1)
         .returning(|_, _| Ok(()));
 
     // Expect delete
-    mock_repo.expect_delete()
+    mock_repo
+        .expect_delete()
         .withf(move |id| id.value() == tenant_id)
         .times(1)
         .returning(|_| Ok(()));
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
-    
+
     let command = DeleteTenantCommand::new(tenant_id);
     let result = service.delete_tenant(command).await;
 
@@ -264,7 +281,8 @@ async fn test_delete_tenant_not_found() {
     let tenant_id = Uuid::new_v4();
 
     // Expect find_by_id to return None
-    mock_repo.expect_find_by_id()
+    mock_repo
+        .expect_find_by_id()
         .times(1)
         .returning(|_| Ok(None));
 
@@ -273,7 +291,7 @@ async fn test_delete_tenant_not_found() {
     mock_repo.expect_delete().times(0);
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
-    
+
     let command = DeleteTenantCommand::new(tenant_id);
     let result = service.delete_tenant(command).await;
 

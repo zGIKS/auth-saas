@@ -1,12 +1,12 @@
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
-use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
-use sea_orm::{Database, DatabaseConnection};
+use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use axum::{
     extract::{Extension, Json, Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
+use sea_orm::{Database, DatabaseConnection};
 use validator::Validate;
 
 use crate::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
@@ -87,8 +87,10 @@ pub async fn register_identity(
         Err(resp) => return resp.into_response(),
     };
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     // Messaging / Email Service Construction
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
@@ -105,8 +107,11 @@ pub async fn register_identity(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
@@ -201,15 +206,20 @@ pub async fn confirm_registration(
         Err(_resp) => {
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
-                state.frontend_url.as_deref().unwrap_or("http://localhost:3000"),
+                state
+                    .frontend_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:3000"),
                 urlencoding::encode("Configuration error")
             );
             return Redirect::to(&error_url).into_response();
         }
     };
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -231,8 +241,11 @@ pub async fn confirm_registration(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
@@ -314,8 +327,10 @@ pub async fn request_password_reset(
         Err(resp) => return resp.into_response(),
     };
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -331,8 +346,11 @@ pub async fn request_password_reset(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
@@ -399,8 +417,10 @@ pub async fn reset_password(
         Err(resp) => return resp.into_response(),
     };
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -416,8 +436,11 @@ pub async fn reset_password(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);

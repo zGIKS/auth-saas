@@ -90,7 +90,7 @@ where
     ) -> Result<(Identity, String), DomainError> {
         // Note: MX validation removed - email confirmation is sufficient validation
         // Avoids: DNS failures, latency, false negatives, and external dependencies
-        
+
         match self.identity_repository.find_by_email(&command.email).await {
             Ok(Some(_)) => return Err(DomainError::EmailAlreadyExists),
             Ok(None) => {}

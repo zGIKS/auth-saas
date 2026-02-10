@@ -3,10 +3,10 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey};
-use serde::{Deserialize, Serialize};
 
 use crate::iam::authentication::{
     infrastructure::{
@@ -125,7 +125,7 @@ pub async fn google_callback(
     let state_token = match query.state {
         Some(s) => s,
         None => {
-             let redirect_url = format!(
+            let redirect_url = format!(
                 "{}/login?error=csrf_error&message={}",
                 frontend_url,
                 urlencoding::encode("Missing state parameter")
@@ -141,7 +141,7 @@ pub async fn google_callback(
     ) {
         Ok(data) => data,
         Err(e) => {
-             let redirect_url = format!(
+            let redirect_url = format!(
                 "{}/login?error=csrf_error&message={}",
                 frontend_url,
                 urlencoding::encode(&format!("Invalid or expired state: {}", e))
@@ -153,11 +153,11 @@ pub async fn google_callback(
     // 2. Load Tenant
     let tenant_id = TenantId::new(token_data.claims.tenant_id);
     let tenant_repo = PostgresTenantRepository::new(state.db.clone());
-    
+
     let tenant = match tenant_repo.find_by_id(&tenant_id).await {
         Ok(Some(t)) => t,
         Ok(None) => {
-             let redirect_url = format!(
+            let redirect_url = format!(
                 "{}/login?error=tenant_not_found&message={}",
                 frontend_url,
                 urlencoding::encode("Tenant not found")
@@ -166,7 +166,7 @@ pub async fn google_callback(
         }
         Err(e) => {
             tracing::error!("Failed to load tenant: {}", e);
-             let redirect_url = format!(
+            let redirect_url = format!(
                 "{}/login?error=internal_error&message={}",
                 frontend_url,
                 urlencoding::encode("Internal error loading tenant")
@@ -187,7 +187,7 @@ pub async fn google_callback(
             return Redirect::to(&redirect_url).into_response();
         }
     };
-    
+
     let google_client_secret = match &tenant.auth_config.google_client_secret {
         Some(secret) => secret.clone(),
         None => {
@@ -199,7 +199,7 @@ pub async fn google_callback(
             return Redirect::to(&redirect_url).into_response();
         }
     };
-    
+
     let google_redirect_uri = state.google_redirect_uri.clone();
 
     let oauth_client = GoogleOAuthClient::new(
@@ -223,10 +223,15 @@ pub async fn google_callback(
     let identity_repo = IdentityRepositoryImpl::new(tenant_db);
 
     // Use tenant-specific JWT secret
-    let token_service =
-        JwtTokenService::new(tenant.auth_config.jwt_secret.clone(), state.session_duration_seconds);
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds, state.circuit_breaker.clone());
+    let token_service = JwtTokenService::new(
+        tenant.auth_config.jwt_secret.clone(),
+        state.session_duration_seconds,
+    );
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
 
     let service = GoogleFederationService::new(
         identity_repo,

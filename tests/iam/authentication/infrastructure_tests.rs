@@ -25,7 +25,8 @@ async fn test_redis_session_repository_expiration_and_storage() {
     // For now we assume user has it or wants to know if it fails.
 
     let session_duration = 900; // 15 minutes (900 seconds)
-    let repo = RedisSessionRepository::new(client.clone(), session_duration, create_circuit_breaker());
+    let repo =
+        RedisSessionRepository::new(client.clone(), session_duration, create_circuit_breaker());
 
     let user_id = Uuid::new_v4();
     let jti_value = format!("jti_{}", Uuid::new_v4());
@@ -59,7 +60,8 @@ async fn test_redis_session_repository_expiration_and_storage() {
 
     // 4. Verify ACTUAL expiration (New short-lived session)
     let short_duration = 1;
-    let short_repo = RedisSessionRepository::new(client.clone(), short_duration, create_circuit_breaker());
+    let short_repo =
+        RedisSessionRepository::new(client.clone(), short_duration, create_circuit_breaker());
     let short_user_id = Uuid::new_v4();
     let short_jti = "short_lived_jti".to_string();
 

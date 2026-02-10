@@ -6,9 +6,9 @@ use axum::{
 };
 use dotenvy::dotenv;
 use sea_orm::{ConnectionTrait, Database, Schema};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use auth_service::shared::infrastructure::persistence::redis as redis_infra;
@@ -20,7 +20,9 @@ async fn main() {
 
     // Initialize tracing
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -84,16 +86,25 @@ async fn main() {
     // User tables will be created per-tenant when a tenant is created
     let builder = db.get_database_backend();
     let schema = Schema::new(builder);
-    
+
     // Create Tenant table in public schema (global metadata)
-    let mut create_tenant_table_op = schema.create_table_from_entity(
-        tenancy::infrastructure::persistence::postgres::model::Entity,
-    );
+    let mut create_tenant_table_op = schema
+        .create_table_from_entity(tenancy::infrastructure::persistence::postgres::model::Entity);
     let stmt_tenant = builder.build(create_tenant_table_op.if_not_exists());
 
     match db.execute(stmt_tenant).await {
         Ok(_) => tracing::info!("Table 'tenants' initialized in public schema"),
         Err(e) => tracing::error!("Error creating 'tenants' table: {}", e),
+    }
+
+    let mut create_admin_accounts_table_op = schema.create_table_from_entity(
+        iam::admin_identity::infrastructure::persistence::postgres::model::Entity,
+    );
+    let stmt_admin_accounts = builder.build(create_admin_accounts_table_op.if_not_exists());
+
+    match db.execute(stmt_admin_accounts).await {
+        Ok(_) => tracing::info!("Table 'admin_accounts' initialized in public schema"),
+        Err(e) => tracing::error!("Error creating 'admin_accounts' table: {}", e),
     }
 
     let state = AppState {
@@ -128,6 +139,7 @@ async fn main() {
 
     let app = Router::new()
         .merge(tenant_aware_routes)
+        .route("/api/v1/admin/auth/login", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin))
         // Public / Tenant-Agnostic Routes
         .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         // Tenancy Routes

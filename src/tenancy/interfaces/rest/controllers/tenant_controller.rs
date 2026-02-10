@@ -3,37 +3,32 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use validator::Validate;
-use uuid::Uuid;
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::Serialize;
+use uuid::Uuid;
+use validator::Validate;
 
-use crate::shared::interfaces::rest::{
-    app_state::AppState,
-    error_response::ErrorResponse,
-};
-use crate::tenancy::domain::{
-    error::TenantError,
-    model::commands::{
-        create_tenant_command::CreateTenantCommand,
-        delete_tenant_command::DeleteTenantCommand,
-    },
-    model::queries::get_tenant_query::GetTenantQuery,
-    services::{
-        tenant_command_service::TenantCommandService,
-        tenant_query_service::TenantQueryService,
-    },
-};
-use crate::tenancy::application::{
-    command_services::tenant_command_service_impl::TenantCommandServiceImpl,
-    query_services::tenant_query_service_impl::TenantQueryServiceImpl,
-};
 use crate::provisioning::{
     application::{
         acl::provisioning_facade_impl::ProvisioningFacadeImpl,
         command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl,
     },
     infrastructure::persistence::postgres::postgres_schema_provisioner::PostgresSchemaProvisioner,
+};
+use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
+use crate::tenancy::application::{
+    command_services::tenant_command_service_impl::TenantCommandServiceImpl,
+    query_services::tenant_query_service_impl::TenantQueryServiceImpl,
+};
+use crate::tenancy::domain::{
+    error::TenantError,
+    model::commands::{
+        create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
+    },
+    model::queries::get_tenant_query::GetTenantQuery,
+    services::{
+        tenant_command_service::TenantCommandService, tenant_query_service::TenantQueryService,
+    },
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
 use crate::tenancy::interfaces::rest::resources::{
@@ -69,7 +64,7 @@ pub async fn create_tenant(
     }
 
     let schema_name = tenant_schema_name(&payload.name);
-    
+
     let command = match CreateTenantCommand::new(
         payload.name,
         schema_name,
@@ -88,9 +83,10 @@ pub async fn create_tenant(
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
 
     let repository = PostgresTenantRepository::new(state.db.clone());
-    
+
     // Inject Facade into TenantCommandService
-    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.create_tenant(command).await {
         Ok((tenant, anon_key)) => {
@@ -100,8 +96,7 @@ pub async fn create_tenant(
             };
             (StatusCode::CREATED, Json(response)).into_response()
         }
-        Err(e) => {
-            match e {
+        Err(e) => match e {
             TenantError::AlreadyExists => ErrorResponse::new("Tenant already exists")
                 .with_code(409)
                 .into_response(),
@@ -114,8 +109,7 @@ pub async fn create_tenant(
                 tracing::error!("Create tenant error: {}", e);
                 ErrorResponse::internal_error().into_response()
             }
-            }
-        }
+        },
     }
 }
 
@@ -137,24 +131,27 @@ pub async fn delete_tenant(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let command = DeleteTenantCommand::new(id);
-    
+
     // Initialize Provisioning BC components
     let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
 
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.delete_tenant(command).await {
         Ok(_) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => match e {
-            TenantError::NotFound => ErrorResponse::new("Tenant not found").with_code(404).into_response(),
-             _ => {
+            TenantError::NotFound => ErrorResponse::new("Tenant not found")
+                .with_code(404)
+                .into_response(),
+            _ => {
                 tracing::error!("Delete tenant error: {}", e);
                 ErrorResponse::internal_error().into_response()
             }
-        }
+        },
     }
 }
 
@@ -187,10 +184,7 @@ fn tenant_schema_name(tenant_name: &str) -> String {
         (status = 500, description = "Internal Server Error")
     )
 )]
-pub async fn get_tenant(
-    State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-) -> impl IntoResponse {
+pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let query = GetTenantQuery::new(id);
     let repository = PostgresTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository);
@@ -211,13 +205,13 @@ pub async fn get_tenant(
             ) {
                 Ok(k) => k,
                 Err(e) => {
-                     tracing::error!("Failed to generate API Key for tenant {}: {}", id, e);
-                     return ErrorResponse::internal_error().into_response();
+                    tracing::error!("Failed to generate API Key for tenant {}: {}", id, e);
+                    return ErrorResponse::internal_error().into_response();
                 }
             };
 
             (StatusCode::OK, Json(TenantResource::new(tenant, key))).into_response()
-        },
+        }
         Ok(None) => ErrorResponse::new("Tenant not found")
             .with_code(404)
             .into_response(),

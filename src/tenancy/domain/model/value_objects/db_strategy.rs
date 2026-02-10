@@ -5,7 +5,5 @@ use utoipa::ToSchema;
 #[serde(tag = "type", content = "config")]
 pub enum DbStrategy {
     #[serde(rename = "shared")]
-    Shared {
-        schema: String,
-    },
+    Shared { schema: String },
 }
