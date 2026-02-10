@@ -13,6 +13,7 @@ use crate::iam::federation::domain::{
 struct RedisExchangeTokens {
     access_token: String,
     refresh_token: String,
+    tenant_id: Uuid,
 }
 
 pub struct TokenExchangeRepositoryImpl {
@@ -33,11 +34,13 @@ impl TokenExchangeRepositoryImpl {
 impl TokenExchangeRepository for TokenExchangeRepositoryImpl {
     async fn save(&self, tokens: ExchangeTokens) -> Result<String, FederationError> {
         let code = Uuid::new_v4().to_string();
-        let key = format!("google_exchange:{}", code);
+        // NAMESPACING: Incluimos el tenant_id en la clave para aislamiento total
+        let key = format!("google_exchange:{}:{}", tokens.tenant_id, code);
 
         let redis_tokens = RedisExchangeTokens {
             access_token: tokens.access_token,
             refresh_token: tokens.refresh_token,
+            tenant_id: tokens.tenant_id,
         };
 
         let value = serde_json::to_string(&redis_tokens)
@@ -57,32 +60,38 @@ impl TokenExchangeRepository for TokenExchangeRepositoryImpl {
         Ok(code)
     }
 
-    async fn claim(&self, code: String) -> Result<Option<ExchangeTokens>, FederationError> {
-        let key = format!("google_exchange:{}", code);
+    async fn claim(&self, code: String, tenant_id: Uuid) -> Result<Option<ExchangeTokens>, FederationError> {
+        // NAMESPACING: Solo buscamos la clave bajo el namespace del tenant actual
+        let key = format!("google_exchange:{}:{}", tenant_id, code);
         let mut con = self
             .client
             .get_multiplexed_async_connection()
             .await
             .map_err(|e| FederationError::Internal(format!("Redis connection error: {}", e)))?;
 
-        let value: Option<String> = con
-            .get(&key)
+        // USAMOS GETDEL (Redis 6.2+): Atómico. Obtiene y borra en un solo paso.
+        // Al usar namespacing, prevenimos el DoS: si el tenant no coincide, la clave simplemente "no existe" para él.
+        let value: Option<String> = redis::cmd("GETDEL")
+            .arg(&key)
+            .query_async(&mut con)
             .await
-            .map_err(|e| FederationError::Internal(format!("Redis get error: {}", e)))?;
+            .map_err(|e| FederationError::Internal(format!("Redis GETDEL error: {}", e)))?;
 
         if let Some(v) = value {
-            // Delete immediately to prevent replay
-            let _: () = con
-                .del(&key)
-                .await
-                .map_err(|e| FederationError::Internal(format!("Redis delete error: {}", e)))?;
-
             let redis_tokens: RedisExchangeTokens = serde_json::from_str(&v)
                 .map_err(|e| FederationError::Internal(format!("Deserialization error: {}", e)))?;
+
+            // Doble check por seguridad (aunque el namespace ya garantiza esto)
+            if redis_tokens.tenant_id != tenant_id {
+                // Esto teóricamente no debería pasar con el namespacing correcto, pero es buena defensa en profundidad
+                tracing::warn!("Tenant mismatch in retrieved token data");
+                return Ok(None);
+            }
 
             Ok(Some(ExchangeTokens {
                 access_token: redis_tokens.access_token,
                 refresh_token: redis_tokens.refresh_token,
+                tenant_id: redis_tokens.tenant_id,
             }))
         } else {
             Ok(None)

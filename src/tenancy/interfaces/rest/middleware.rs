@@ -46,7 +46,7 @@ pub async fn tenant_resolver(
     };
 
     let tenant_id = if let Some(token_str) = token_str_opt {
-        // 2a. Decode API Key (JWT)
+        // 2. Decode API Key (JWT)
         let mut validation = Validation::default();
         validation.validate_exp = false; // Allow keys without expiration (long-lived API keys)
         validation.set_required_spec_claims(&["iss", "tenant_id", "role"]);
@@ -63,19 +63,8 @@ pub async fn tenant_resolver(
 
         TenantId::new(token_data.claims.tenant_id)
     } else {
-        // 2b. Fallback: Check X-Tenant-ID (Legacy/Dev support)
-        if let Some(tenant_id_header) = headers.get("X-Tenant-ID") {
-            tracing::debug!("Using Legacy X-Tenant-ID header");
-            let tenant_id_str = tenant_id_header
-                .to_str()
-                .map_err(|_| StatusCode::BAD_REQUEST)?;
-            let tenant_uuid =
-                Uuid::parse_str(tenant_id_str).map_err(|_| StatusCode::BAD_REQUEST)?;
-            TenantId::new(tenant_uuid)
-        } else {
-            // No credentials found
-            return Err(StatusCode::UNAUTHORIZED);
-        }
+        // No credentials found
+        return Err(StatusCode::UNAUTHORIZED);
     };
 
     // 3. Resolve Tenant from Database

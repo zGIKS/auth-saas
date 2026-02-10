@@ -94,10 +94,12 @@ pub async fn rate_limit_middleware(
                 retry_ms
             );
 
-            let is_banned =
-                register_global_excess_and_maybe_ban(&state.redis, &ip, &ban_key).await;
+            let is_banned = register_global_excess_and_maybe_ban(&state.redis, &ip, &ban_key).await;
             if is_banned {
-                tracing::warn!("Applied temporary ban due to repeated global bursts: ip={}", ip);
+                tracing::warn!(
+                    "Applied temporary ban due to repeated global bursts: ip={}",
+                    ip
+                );
             }
 
             return Err(StatusCode::TOO_MANY_REQUESTS);
