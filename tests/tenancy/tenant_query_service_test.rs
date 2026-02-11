@@ -36,6 +36,10 @@ struct TestClaims {
     iss: String,
     tenant_id: Uuid,
     role: String,
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 #[tokio::test]
@@ -64,14 +68,20 @@ async fn test_reissue_tenant_anon_key_success() {
         .times(1)
         .returning(move |_| Ok(Some(tenant.clone())));
 
+    // Expect update because of version increment
+    mock_repo
+        .expect_update()
+        .times(1)
+        .returning(Ok);
+
     let service = TenantQueryServiceImpl::new(mock_repo, jwt_secret.clone());
     let query = ReissueTenantAnonKeyQuery::new(tenant_id);
 
     let token = service.reissue_tenant_anon_key(query).await.unwrap();
 
     let mut validation = Validation::new(Algorithm::HS256);
-    validation.validate_exp = false;
-    validation.set_required_spec_claims(&["iss", "tenant_id", "role"]);
+    validation.validate_exp = true;
+    validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
 
     let decoded = decode::<TestClaims>(
         &token,
@@ -83,6 +93,7 @@ async fn test_reissue_tenant_anon_key_success() {
     assert_eq!(decoded.claims.iss, "saas-system");
     assert_eq!(decoded.claims.tenant_id, tenant_id);
     assert_eq!(decoded.claims.role, "anon");
+    assert_eq!(decoded.claims.version, 1);
 }
 
 #[tokio::test]

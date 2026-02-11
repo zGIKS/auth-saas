@@ -19,12 +19,17 @@ use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::Serialize;
 use uuid::Uuid;
 
+use chrono::{Duration, Utc};
+
 #[derive(Debug, Serialize)]
 struct Claims {
     iss: String,
     tenant_id: Uuid,
     role: String,
-    // No expiration for long-lived API keys, or set a very long one
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 pub struct TenantCommandServiceImpl<R, P>
@@ -65,20 +70,29 @@ where
             return Err(TenantError::AlreadyExists);
         }
 
+        let tenant_id = TenantId::random();
+        let schema_name = format!("tenant_{}", tenant_id.value().to_string().replace("-", ""));
+
+        let db_strategy = crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
+            schema: schema_name.clone(),
+        };
+
+        let jwt_secret = generate_tenant_jwt_signing_secret();
+        let auth_config = AuthConfig::new(
+            jwt_secret,
+            command.google_client_id,
+            command.google_client_secret,
+        )
+        .map_err(TenantError::InvalidAuthConfig)?;
+
         let tenant = Tenant::new(
-            TenantId::random(),
+            tenant_id,
             command.name,
-            command.db_strategy,
-            command.auth_config,
+            db_strategy,
+            auth_config,
         );
 
         // 1. Provision Infrastructure
-        let schema_name = match &tenant.db_strategy {
-            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
-                schema,
-            } => schema.clone(),
-        };
-
         self.provisioning_facade
             .provision_tenant(tenant.id.value().to_string(), schema_name)
             .await
@@ -88,7 +102,7 @@ where
         let saved_tenant = self.repository.save(tenant).await?;
 
         // 3. Generate Anon Key
-        let key = self.generate_anon_key(saved_tenant.id.value())?;
+        let key = self.generate_anon_key(saved_tenant.id.value(), saved_tenant.anon_key_version)?;
 
         Ok((saved_tenant, key))
     }
@@ -170,11 +184,18 @@ where
     R: TenantRepository,
     P: ProvisioningFacade,
 {
-    fn generate_anon_key(&self, tenant_id: Uuid) -> Result<String, TenantError> {
+    fn generate_anon_key(&self, tenant_id: Uuid, version: u32) -> Result<String, TenantError> {
+        let now = Utc::now();
+        let exp = now + Duration::days(30);
+
         let claims = Claims {
             iss: "saas-system".to_string(),
             tenant_id,
             role: "anon".to_string(),
+            iat: now.timestamp(),
+            exp: exp.timestamp(),
+            jti: Uuid::new_v4().to_string(),
+            version,
         };
 
         encode(

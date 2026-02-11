@@ -3,6 +3,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::Serialize;
 use uuid::Uuid;
@@ -50,6 +51,10 @@ struct Claims {
     iss: String,
     tenant_id: Uuid,
     role: String,
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 #[utoipa::path(
@@ -74,11 +79,8 @@ pub async fn create_tenant(
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
 
-    let schema_name = tenant_schema_name(&payload.name);
-
     let command = match CreateTenantCommand::new(
         payload.name,
-        schema_name,
         payload.google_client_id,
         payload.google_client_secret,
     ) {
@@ -168,22 +170,6 @@ pub async fn delete_tenant(
     }
 }
 
-fn tenant_schema_name(tenant_name: &str) -> String {
-    let normalized: String = tenant_name
-        .trim()
-        .to_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_lowercase() || c.is_ascii_digit() {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    format!("tenant_{normalized}")
-}
-
 #[utoipa::path(
     get,
     path = "/api/v1/tenants/{id}",
@@ -207,10 +193,17 @@ pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> 
     match service.get_tenant(query).await {
         Ok(Some(tenant)) => {
             // Generate API Key on the fly (Stateless)
+            let now = Utc::now();
+            let exp = now + Duration::days(30);
+
             let claims = Claims {
                 iss: "saas-system".to_string(),
                 tenant_id: tenant.id.value(),
                 role: "anon".to_string(),
+                iat: now.timestamp(),
+                exp: exp.timestamp(),
+                jti: Uuid::new_v4().to_string(),
+                version: tenant.anon_key_version,
             };
 
             let key = match encode(

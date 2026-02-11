@@ -10,6 +10,7 @@ use crate::tenancy::domain::{
     services::tenant_query_service::TenantQueryService,
 };
 use async_trait::async_trait;
+use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::Serialize;
 use uuid::Uuid;
@@ -19,6 +20,10 @@ struct Claims {
     iss: String,
     tenant_id: Uuid,
     role: String,
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 pub struct TenantQueryServiceImpl<R: TenantRepository> {
@@ -45,7 +50,7 @@ impl<R: TenantRepository> TenantQueryService for TenantQueryServiceImpl<R> {
         &self,
         query: ReissueTenantAnonKeyQuery,
     ) -> Result<String, TenantError> {
-        let tenant = self
+        let mut tenant = self
             .repository
             .find_by_id(&query.tenant_id)
             .await?
@@ -57,10 +62,21 @@ impl<R: TenantRepository> TenantQueryService for TenantQueryServiceImpl<R> {
             ));
         }
 
+        // Increment version for true rotation
+        tenant.increment_anon_key_version();
+        let saved_tenant = self.repository.update(tenant).await?;
+
+        let now = Utc::now();
+        let exp = now + Duration::days(30);
+
         let claims = Claims {
             iss: "saas-system".to_string(),
-            tenant_id: tenant.id.value(),
+            tenant_id: saved_tenant.id.value(),
             role: "anon".to_string(),
+            iat: now.timestamp(),
+            exp: exp.timestamp(),
+            jti: Uuid::new_v4().to_string(),
+            version: saved_tenant.anon_key_version,
         };
 
         encode(

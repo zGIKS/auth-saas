@@ -74,7 +74,6 @@ async fn test_create_tenant_success() {
 
     let command = CreateTenantCommand::new(
         "test-project".to_string(),
-        "tenant_test_project".to_string(),
         None,
         None,
     )
@@ -88,7 +87,8 @@ async fn test_create_tenant_success() {
     assert_eq!(tenant.name.value(), "test-project");
     match tenant.db_strategy {
         DbStrategy::Shared { schema } => {
-            assert_eq!(schema, "tenant_test_project");
+            assert!(schema.starts_with("tenant_"));
+            assert_eq!(schema.len(), 7 + 32); // tenant_ + uuid without hyphens
         }
     }
     // Verify Key is not empty
@@ -126,7 +126,6 @@ async fn test_create_tenant_already_exists() {
 
     let command = CreateTenantCommand::new(
         "existing-project".to_string(),
-        "tenant_existing_project".to_string(),
         None,
         None,
     )
@@ -146,7 +145,6 @@ async fn test_create_tenant_fails_with_invalid_name() {
     // This logic is mostly in the Command creation, but good to verify
     let result = CreateTenantCommand::new(
         "Invalid Name Here".to_string(), // Spaces not allowed
-        "tenant_invalid_name".to_string(),
         None,
         None,
     );
@@ -164,6 +162,10 @@ struct TestClaims {
     iss: String,
     tenant_id: Uuid,
     role: String,
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 #[tokio::test]
@@ -182,7 +184,6 @@ async fn test_security_generated_jwt_structure() {
 
     let command = CreateTenantCommand::new(
         "secure-app".to_string(),
-        "tenant_secure_app".to_string(),
         None,
         None,
     )
@@ -192,8 +193,8 @@ async fn test_security_generated_jwt_structure() {
 
     // Verify JWT Integrity
     let mut validation = Validation::new(Algorithm::HS256);
-    validation.validate_exp = false; // We don't use expiration for anon keys yet
-    validation.set_required_spec_claims(&["iss", "tenant_id", "role"]);
+    validation.validate_exp = true; 
+    validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
 
     let decoded = decode::<TestClaims>(
         &key,
@@ -203,26 +204,16 @@ async fn test_security_generated_jwt_structure() {
 
     assert!(
         decoded.is_ok(),
-        "JWT should be valid and signed with the correct secret"
+        "JWT should be valid and signed with the correct secret. Error: {:?}",
+        decoded.err()
     );
     let claims = decoded.unwrap().claims;
 
     assert_eq!(claims.tenant_id, tenant.id.value());
     assert_eq!(claims.role, "anon");
     assert_eq!(claims.iss, "saas-system");
-}
-
-#[tokio::test]
-async fn test_rejects_empty_schema_name() {
-    // Command validation test, doesn't need service
-    let command =
-        CreateTenantCommand::new("my-awesome-saas".to_string(), "   ".to_string(), None, None);
-
-    assert!(command.is_err(), "Should fail due to empty schema name");
-    match command.unwrap_err() {
-        TenantError::InvalidSchemaName(_) => (),
-        _ => panic!("Expected InvalidSchemaName error"),
-    }
+    assert_eq!(claims.version, 0);
+    assert!(claims.exp > claims.iat);
 }
 
 #[tokio::test]
