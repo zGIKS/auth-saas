@@ -31,6 +31,31 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
    ```
 4. Accede al servidor en `http://localhost:<PORT>` (por defecto 8081 según `.env`).
 
+## Deploy con Docker Compose (seguro)
+
+Se agregó un despliegue con `docker-compose.yml` para correr solo la API. Postgres y Redis se toman desde variables de entorno (`DATABASE_URL` y `REDIS_URL`) apuntando a servicios externos.
+
+1. Crea archivo de entorno para deploy:
+   ```bash
+   cp .env .env.backup
+   ```
+2. Edita `.env` con valores de deploy reales (`JWT_SECRET`, `DATABASE_URL`, `REDIS_URL`, `SMTP_PASSWORD`, `GOOGLE_REDIRECT_URI`).
+3. Levanta los servicios:
+   ```bash
+   docker compose up -d --build
+   ```
+4. Verifica estado:
+   ```bash
+   docker compose ps
+   docker compose logs -f app
+   ```
+
+Endurecimientos incluidos en Compose:
+
+- API ejecuta como usuario no-root, `read_only`, `cap_drop: ALL` y `no-new-privileges`.
+- La conexión a Postgres y Redis se resuelve vía env vars para usar servicios administrados fuera de Docker.
+- Healthcheck en app para validar disponibilidad del proceso HTTP.
+
 ## Configuración clave
 
 Variables imprescindibles (usa `.env`):
