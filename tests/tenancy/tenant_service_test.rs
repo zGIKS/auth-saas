@@ -6,6 +6,8 @@ use auth_service::tenancy::domain::{
     model::{
         commands::{
             create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
+            rotate_google_oauth_config_command::RotateGoogleOauthConfigCommand,
+            rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
         },
         tenant::Tenant,
         value_objects::{
@@ -29,6 +31,7 @@ mock! {
     #[async_trait]
     impl TenantRepository for TenantRepository {
         async fn save(&self, tenant: Tenant) -> Result<Tenant, TenantError>;
+        async fn update(&self, tenant: Tenant) -> Result<Tenant, TenantError>;
         async fn find_by_id(&self, id: &TenantId) -> Result<Option<Tenant>, TenantError>;
         async fn find_by_name(&self, name: &TenantName) -> Result<Option<Tenant>, TenantError>;
         async fn delete(&self, id: &TenantId) -> Result<(), TenantError>;
@@ -71,7 +74,6 @@ async fn test_create_tenant_success() {
 
     let command = CreateTenantCommand::new(
         "test-project".to_string(),
-        "tenant_test_project".to_string(),
         None,
         None,
     )
@@ -85,7 +87,8 @@ async fn test_create_tenant_success() {
     assert_eq!(tenant.name.value(), "test-project");
     match tenant.db_strategy {
         DbStrategy::Shared { schema } => {
-            assert_eq!(schema, "tenant_test_project");
+            assert!(schema.starts_with("tenant_"));
+            assert_eq!(schema.len(), 7 + 32); // tenant_ + uuid without hyphens
         }
     }
     // Verify Key is not empty
@@ -123,7 +126,6 @@ async fn test_create_tenant_already_exists() {
 
     let command = CreateTenantCommand::new(
         "existing-project".to_string(),
-        "tenant_existing_project".to_string(),
         None,
         None,
     )
@@ -143,7 +145,6 @@ async fn test_create_tenant_fails_with_invalid_name() {
     // This logic is mostly in the Command creation, but good to verify
     let result = CreateTenantCommand::new(
         "Invalid Name Here".to_string(), // Spaces not allowed
-        "tenant_invalid_name".to_string(),
         None,
         None,
     );
@@ -161,6 +162,10 @@ struct TestClaims {
     iss: String,
     tenant_id: Uuid,
     role: String,
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 #[tokio::test]
@@ -179,7 +184,6 @@ async fn test_security_generated_jwt_structure() {
 
     let command = CreateTenantCommand::new(
         "secure-app".to_string(),
-        "tenant_secure_app".to_string(),
         None,
         None,
     )
@@ -189,8 +193,8 @@ async fn test_security_generated_jwt_structure() {
 
     // Verify JWT Integrity
     let mut validation = Validation::new(Algorithm::HS256);
-    validation.validate_exp = false; // We don't use expiration for anon keys yet
-    validation.set_required_spec_claims(&["iss", "tenant_id", "role"]);
+    validation.validate_exp = true; 
+    validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
 
     let decoded = decode::<TestClaims>(
         &key,
@@ -200,26 +204,16 @@ async fn test_security_generated_jwt_structure() {
 
     assert!(
         decoded.is_ok(),
-        "JWT should be valid and signed with the correct secret"
+        "JWT should be valid and signed with the correct secret. Error: {:?}",
+        decoded.err()
     );
     let claims = decoded.unwrap().claims;
 
     assert_eq!(claims.tenant_id, tenant.id.value());
     assert_eq!(claims.role, "anon");
     assert_eq!(claims.iss, "saas-system");
-}
-
-#[tokio::test]
-async fn test_rejects_empty_schema_name() {
-    // Command validation test, doesn't need service
-    let command =
-        CreateTenantCommand::new("my-awesome-saas".to_string(), "   ".to_string(), None, None);
-
-    assert!(command.is_err(), "Should fail due to empty schema name");
-    match command.unwrap_err() {
-        TenantError::InvalidSchemaName(_) => (),
-        _ => panic!("Expected InvalidSchemaName error"),
-    }
+    assert_eq!(claims.version, 0);
+    assert!(claims.exp > claims.iat);
 }
 
 #[tokio::test]
@@ -300,4 +294,98 @@ async fn test_delete_tenant_not_found() {
         TenantError::NotFound => (),
         _ => panic!("Expected NotFound error"),
     }
+}
+
+#[tokio::test]
+async fn test_rotate_google_oauth_config_success() {
+    let mut mock_repo = MockTenantRepository::new();
+    let mock_provisioner = MockProvisioningFacade::new();
+    let jwt_secret = "test_secret_that_is_at_least_32_characters_long_for_validation".to_string();
+    let tenant_id = Uuid::new_v4();
+
+    let tenant = Tenant::new(
+        TenantId::new(tenant_id),
+        TenantName::new("rotate-google".to_string()).unwrap(),
+        DbStrategy::Shared {
+            schema: "tenant_rotate_google".to_string(),
+        },
+        AuthConfig::new(
+            "tenant_old_jwt_secret_that_is_long_enough_12345".to_string(),
+            Some("old-client-id".to_string()),
+            Some("old-client-secret".to_string()),
+        )
+        .unwrap(),
+    );
+
+    mock_repo
+        .expect_find_by_id()
+        .withf(move |id| id.value() == tenant_id)
+        .times(1)
+        .returning(move |_| Ok(Some(tenant.clone())));
+
+    mock_repo
+        .expect_update()
+        .times(1)
+        .withf(|tenant| {
+            tenant.auth_config.google_client_id.as_deref() == Some("new-client-id")
+                && tenant.auth_config.google_client_secret.as_deref() == Some("new-client-secret")
+        })
+        .returning(Ok);
+
+    let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
+    let command = RotateGoogleOauthConfigCommand::new(
+        tenant_id,
+        "new-client-id".to_string(),
+        "new-client-secret".to_string(),
+    )
+    .unwrap();
+
+    let result = service.rotate_google_oauth_config(command).await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_rotate_tenant_jwt_signing_key_success() {
+    let mut mock_repo = MockTenantRepository::new();
+    let mock_provisioner = MockProvisioningFacade::new();
+    let jwt_secret = "test_secret_that_is_at_least_32_characters_long_for_validation".to_string();
+    let tenant_id = Uuid::new_v4();
+
+    let old_tenant_jwt = "tenant_old_jwt_secret_that_is_long_enough_12345".to_string();
+    let tenant = Tenant::new(
+        TenantId::new(tenant_id),
+        TenantName::new("rotate-jwt".to_string()).unwrap(),
+        DbStrategy::Shared {
+            schema: "tenant_rotate_jwt".to_string(),
+        },
+        AuthConfig::new(
+            old_tenant_jwt.clone(),
+            Some("google-client-id".to_string()),
+            Some("google-client-secret".to_string()),
+        )
+        .unwrap(),
+    );
+
+    mock_repo
+        .expect_find_by_id()
+        .withf(move |id| id.value() == tenant_id)
+        .times(1)
+        .returning(move |_| Ok(Some(tenant.clone())));
+
+    mock_repo
+        .expect_update()
+        .times(1)
+        .withf(move |tenant| {
+            tenant.auth_config.jwt_secret != old_tenant_jwt
+                && tenant.auth_config.jwt_secret.len() == 128
+                && tenant.auth_config.google_client_id.as_deref() == Some("google-client-id")
+                && tenant.auth_config.google_client_secret.as_deref() == Some("google-client-secret")
+        })
+        .returning(Ok);
+
+    let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
+    let command = RotateTenantJwtSigningKeyCommand::new(tenant_id);
+
+    let result = service.rotate_tenant_jwt_signing_key(command).await;
+    assert!(result.is_ok());
 }

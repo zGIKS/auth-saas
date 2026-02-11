@@ -12,6 +12,7 @@ use crate::tenancy::domain::{
 };
 use async_trait::async_trait;
 use sea_orm::*;
+use sea_query::Expr;
 
 pub struct PostgresTenantRepository {
     db: DatabaseConnection,
@@ -26,14 +27,25 @@ impl PostgresTenantRepository {
 #[async_trait]
 impl TenantRepository for PostgresTenantRepository {
     async fn save(&self, tenant: Tenant) -> Result<Tenant, TenantError> {
+        let db_strategy_val = serde_json::to_value(&tenant.db_strategy)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+        let auth_config = serde_json::to_value(&tenant.auth_config)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
+        let schema_name = match &tenant.db_strategy {
+            DbStrategy::Shared { schema } => schema.clone(),
+        };
+
         let tenant_model = model::ActiveModel {
             id: Set(tenant.id.value()),
             name: Set(tenant.name.value().to_string()),
-            db_strategy: Set(serde_json::to_value(&tenant.db_strategy).unwrap()),
-            auth_config: Set(serde_json::to_value(&tenant.auth_config).unwrap()),
+            schema_name: Set(schema_name),
+            db_strategy: Set(db_strategy_val),
+            auth_config: Set(auth_config),
             created_at: Set(tenant.created_at),
             updated_at: Set(tenant.updated_at),
             active: Set(tenant.active),
+            anon_key_version: Set(tenant.anon_key_version as i32),
         };
 
         // Upsert logic (simplificada para este ejemplo, idealmente usar on_conflict)
@@ -45,6 +57,36 @@ impl TenantRepository for PostgresTenantRepository {
 
         // Devolvemos el tenant tal cual entró porque asumimos éxito.
         // En prod, re-hidrataríamos desde la respuesta DB si hay campos autogenerados (no es el caso aquí excepto timestamps si fuera DB side)
+        Ok(tenant)
+    }
+
+    async fn update(&self, tenant: Tenant) -> Result<Tenant, TenantError> {
+        let db_strategy_val = serde_json::to_value(&tenant.db_strategy)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+        let auth_config = serde_json::to_value(&tenant.auth_config)
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
+        let schema_name = match &tenant.db_strategy {
+            DbStrategy::Shared { schema } => schema.clone(),
+        };
+
+        let result = TenantEntity::update_many()
+            .col_expr(model::Column::Name, Expr::value(tenant.name.value().to_string()))
+            .col_expr(model::Column::SchemaName, Expr::value(schema_name))
+            .col_expr(model::Column::DbStrategy, Expr::value(db_strategy_val))
+            .col_expr(model::Column::AuthConfig, Expr::value(auth_config))
+            .col_expr(model::Column::UpdatedAt, Expr::value(tenant.updated_at))
+            .col_expr(model::Column::Active, Expr::value(tenant.active))
+            .col_expr(model::Column::AnonKeyVersion, Expr::value(tenant.anon_key_version as i32))
+            .filter(model::Column::Id.eq(tenant.id.value()))
+            .exec(&self.db)
+            .await
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
+        if result.rows_affected == 0 {
+            return Err(TenantError::NotFound);
+        }
+
         Ok(tenant)
     }
 
@@ -97,5 +139,6 @@ fn map_model_to_entity(model: model::Model) -> Result<Tenant, TenantError> {
         created_at: model.created_at,
         updated_at: model.updated_at,
         active: model.active,
+        anon_key_version: model.anon_key_version as u32,
     })
 }

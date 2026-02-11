@@ -4,24 +4,32 @@ use crate::tenancy::domain::{
     model::{
         commands::{
             create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
+            rotate_google_oauth_config_command::RotateGoogleOauthConfigCommand,
+            rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
         },
         tenant::Tenant,
-        value_objects::tenant_id::TenantId,
+        value_objects::{auth_config::AuthConfig, tenant_id::TenantId},
     },
     repositories::tenant_repository::TenantRepository,
     services::tenant_command_service::TenantCommandService,
 };
 use async_trait::async_trait;
+use rand::Rng;
 use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::Serialize;
 use uuid::Uuid;
+
+use chrono::{Duration, Utc};
 
 #[derive(Debug, Serialize)]
 struct Claims {
     iss: String,
     tenant_id: Uuid,
     role: String,
-    // No expiration for long-lived API keys, or set a very long one
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 pub struct TenantCommandServiceImpl<R, P>
@@ -62,20 +70,29 @@ where
             return Err(TenantError::AlreadyExists);
         }
 
+        let tenant_id = TenantId::random();
+        let schema_name = format!("tenant_{}", tenant_id.value().to_string().replace("-", ""));
+
+        let db_strategy = crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
+            schema: schema_name.clone(),
+        };
+
+        let jwt_secret = generate_tenant_jwt_signing_secret();
+        let auth_config = AuthConfig::new(
+            jwt_secret,
+            command.google_client_id,
+            command.google_client_secret,
+        )
+        .map_err(TenantError::InvalidAuthConfig)?;
+
         let tenant = Tenant::new(
-            TenantId::random(),
+            tenant_id,
             command.name,
-            command.db_strategy,
-            command.auth_config,
+            db_strategy,
+            auth_config,
         );
 
         // 1. Provision Infrastructure
-        let schema_name = match &tenant.db_strategy {
-            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
-                schema,
-            } => schema.clone(),
-        };
-
         self.provisioning_facade
             .provision_tenant(tenant.id.value().to_string(), schema_name)
             .await
@@ -85,21 +102,7 @@ where
         let saved_tenant = self.repository.save(tenant).await?;
 
         // 3. Generate Anon Key
-        let claims = Claims {
-            iss: "saas-system".to_string(),
-            tenant_id: saved_tenant.id.value(),
-            role: "anon".to_string(),
-        };
-
-        let key = encode(
-            &Header::default(),
-            &claims,
-            &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
-        )
-        .map_err(|e| {
-            tracing::error!("Failed to generate API Key: {}", e);
-            TenantError::InfrastructureError(e.to_string())
-        })?;
+        let key = self.generate_anon_key(saved_tenant.id.value(), saved_tenant.anon_key_version)?;
 
         Ok((saved_tenant, key))
     }
@@ -131,4 +134,84 @@ where
 
         Ok(())
     }
+
+    async fn rotate_google_oauth_config(
+        &self,
+        command: RotateGoogleOauthConfigCommand,
+    ) -> Result<Tenant, TenantError> {
+        let mut tenant = self
+            .repository
+            .find_by_id(&command.tenant_id)
+            .await?
+            .ok_or(TenantError::NotFound)?;
+
+        let updated_auth_config = AuthConfig::new(
+            tenant.auth_config.jwt_secret.clone(),
+            Some(command.google_client_id),
+            Some(command.google_client_secret),
+        )
+        .map_err(TenantError::InvalidAuthConfig)?;
+
+        tenant.update_auth_config(updated_auth_config);
+        self.repository.update(tenant).await
+    }
+
+    async fn rotate_tenant_jwt_signing_key(
+        &self,
+        command: RotateTenantJwtSigningKeyCommand,
+    ) -> Result<Tenant, TenantError> {
+        let mut tenant = self
+            .repository
+            .find_by_id(&command.tenant_id)
+            .await?
+            .ok_or(TenantError::NotFound)?;
+
+        let next_jwt_secret = generate_tenant_jwt_signing_secret();
+        let updated_auth_config = AuthConfig::new(
+            next_jwt_secret,
+            tenant.auth_config.google_client_id.clone(),
+            tenant.auth_config.google_client_secret.clone(),
+        )
+        .map_err(TenantError::InvalidAuthConfig)?;
+
+        tenant.update_auth_config(updated_auth_config);
+        self.repository.update(tenant).await
+    }
+}
+
+impl<R, P> TenantCommandServiceImpl<R, P>
+where
+    R: TenantRepository,
+    P: ProvisioningFacade,
+{
+    fn generate_anon_key(&self, tenant_id: Uuid, version: u32) -> Result<String, TenantError> {
+        let now = Utc::now();
+        let exp = now + Duration::days(30);
+
+        let claims = Claims {
+            iss: "saas-system".to_string(),
+            tenant_id,
+            role: "anon".to_string(),
+            iat: now.timestamp(),
+            exp: exp.timestamp(),
+            jti: Uuid::new_v4().to_string(),
+            version,
+        };
+
+        encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.jwt_secret.as_bytes()),
+        )
+        .map_err(|e| {
+            tracing::error!("Failed to generate API Key: {}", e);
+            TenantError::InfrastructureError(e.to_string())
+        })
+    }
+}
+
+fn generate_tenant_jwt_signing_secret() -> String {
+    let mut rng = rand::rng();
+    let random_bytes: [u8; 64] = rng.random();
+    hex::encode(random_bytes)
 }

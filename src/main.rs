@@ -161,6 +161,30 @@ async fn main() {
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
                 )),
         )
+        .route(
+            "/api/v1/tenants/:id/oauth/google/rotate",
+            post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_google_oauth_config)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                )),
+        )
+        .route(
+            "/api/v1/tenants/:id/jwt-signing-key/rotate",
+            post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_tenant_jwt_signing_key)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                )),
+        )
+        .route(
+            "/api/v1/tenants/:id/anon-key/reissue",
+            post(tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                )),
+        )
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
         .with_state(state);

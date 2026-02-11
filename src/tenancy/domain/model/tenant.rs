@@ -12,6 +12,7 @@ pub struct Tenant {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub active: bool,
+    pub anon_key_version: u32,
 }
 
 impl Tenant {
@@ -30,11 +31,17 @@ impl Tenant {
             created_at: now,
             updated_at: now,
             active: true,
+            anon_key_version: 0,
         }
     }
 
     pub fn update_auth_config(&mut self, config: AuthConfig) {
         self.auth_config = config;
+        self.updated_at = Utc::now();
+    }
+
+    pub fn increment_anon_key_version(&mut self) {
+        self.anon_key_version += 1;
         self.updated_at = Utc::now();
     }
 

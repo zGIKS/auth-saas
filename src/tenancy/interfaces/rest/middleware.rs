@@ -24,9 +24,10 @@ struct ApiKeyClaims {
     iss: String,
     tenant_id: Uuid,
     role: String,
-    // Optional: exp field if we decide to expire keys
-    #[serde(skip_serializing_if = "Option::is_none")]
-    exp: Option<usize>,
+    iat: i64,
+    exp: i64,
+    jti: String,
+    version: u32,
 }
 
 pub async fn tenant_resolver(
@@ -45,11 +46,11 @@ pub async fn tenant_resolver(
         None
     };
 
-    let tenant_id = if let Some(token_str) = token_str_opt {
+    let (tenant_id, version) = if let Some(token_str) = token_str_opt {
         // 2. Decode API Key (JWT)
         let mut validation = Validation::default();
-        validation.validate_exp = false; // Allow keys without expiration (long-lived API keys)
-        validation.set_required_spec_claims(&["iss", "tenant_id", "role"]);
+        validation.validate_exp = true; 
+        validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
 
         let token_data = decode::<ApiKeyClaims>(
             token_str,
@@ -61,7 +62,7 @@ pub async fn tenant_resolver(
             StatusCode::UNAUTHORIZED
         })?;
 
-        TenantId::new(token_data.claims.tenant_id)
+        (TenantId::new(token_data.claims.tenant_id), token_data.claims.version)
     } else {
         // No credentials found
         return Err(StatusCode::UNAUTHORIZED);
@@ -70,8 +71,6 @@ pub async fn tenant_resolver(
     // 3. Resolve Tenant from Database
     let repository = PostgresTenantRepository::new(state.db.clone());
 
-    // Using the repository directly here is an accepted shortcut for middleware
-    // in modular monoliths to avoid boilerplate services just for fetching.
     let tenant = repository
         .find_by_id(&tenant_id)
         .await
@@ -82,10 +81,20 @@ pub async fn tenant_resolver(
         return Err(StatusCode::FORBIDDEN); // Tenant is suspended
     }
 
-    // 4. Inject into Extensions
-    // This allows downstream handlers (IAM, etc.) to access the config
+    // 4. Validate Version
+    if tenant.anon_key_version != version {
+        tracing::warn!(
+            "Stale API Key version for tenant {}: expected {}, got {}",
+            tenant.id.value(),
+            tenant.anon_key_version,
+            version
+        );
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // 5. Inject into Extensions
     request.extensions_mut().insert(TenantContext { tenant });
 
-    // 5. Continue
+    // 6. Continue
     Ok(next.run(request).await)
 }
