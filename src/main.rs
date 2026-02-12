@@ -140,6 +140,7 @@ async fn main() {
     let app = Router::new()
         .merge(tenant_aware_routes)
         .route("/api/v1/admin/login", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin))
+        .route("/api/v1/admin/logout", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::logout_admin))
         // Public / Tenant-Agnostic Routes
         .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         // Tenancy Routes

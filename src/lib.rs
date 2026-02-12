@@ -11,6 +11,7 @@ pub mod tenancy;
 #[openapi(
     paths(
         iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin,
+        iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::logout_admin,
         iam::identity::interfaces::rest::controllers::identity_controller::register_identity,
         iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration,
         iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset,
@@ -32,6 +33,7 @@ pub mod tenancy;
         schemas(
             iam::admin_identity::interfaces::rest::resources::admin_login_resource::AdminLoginRequest,
             iam::admin_identity::interfaces::rest::resources::admin_login_resource::AdminLoginResponse,
+            iam::admin_identity::interfaces::rest::resources::admin_logout_resource::AdminLogoutRequest,
             iam::identity::interfaces::rest::resources::register_identity_resource::RegisterIdentityRequest,
             iam::identity::interfaces::rest::resources::register_identity_resource::RegisterIdentityResponse,
             iam::identity::domain::model::commands::confirm_registration_command::ConfirmRegistrationCommand,

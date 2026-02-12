@@ -5,6 +5,7 @@ use crate::iam::{
             aggregates::admin_account::AdminAccount,
             commands::{
                 admin_login_command::AdminLoginCommand,
+                admin_logout_command::AdminLogoutCommand,
                 create_initial_admin_command::CreateInitialAdminCommand,
             },
             events::initial_admin_created_event::InitialAdminCreatedEvent,
@@ -14,9 +15,13 @@ use crate::iam::{
             },
             value_objects::{
                 admin_account_id::AdminAccountId, admin_password_hash::AdminPasswordHash,
+                admin_token_hash::AdminTokenHash,
             },
         },
-        repositories::admin_account_repository::AdminAccountRepository,
+        repositories::{
+            admin_account_repository::AdminAccountRepository,
+            admin_session_repository::AdminSessionRepository,
+        },
         services::{
             admin_identity_command_service::AdminIdentityCommandService,
             admin_identity_query_service::AdminIdentityQueryService,
@@ -28,38 +33,43 @@ use async_trait::async_trait;
 use bcrypt::{DEFAULT_COST, hash, verify};
 use sha2::{Digest, Sha256};
 
-pub struct AdminIdentityCommandServiceImpl<R, Q, T>
+pub struct AdminIdentityCommandServiceImpl<R, Q, T, S>
 where
     R: AdminAccountRepository,
     Q: AdminIdentityQueryService,
     T: TokenService,
+    S: AdminSessionRepository,
 {
     repository: R,
     query_service: Q,
     token_service: T,
+    session_repository: S,
 }
 
-impl<R, Q, T> AdminIdentityCommandServiceImpl<R, Q, T>
+impl<R, Q, T, S> AdminIdentityCommandServiceImpl<R, Q, T, S>
 where
     R: AdminAccountRepository,
     Q: AdminIdentityQueryService,
     T: TokenService,
+    S: AdminSessionRepository,
 {
-    pub fn new(repository: R, query_service: Q, token_service: T) -> Self {
+    pub fn new(repository: R, query_service: Q, token_service: T, session_repository: S) -> Self {
         Self {
             repository,
             query_service,
             token_service,
+            session_repository,
         }
     }
 }
 
 #[async_trait]
-impl<R, Q, T> AdminIdentityCommandService for AdminIdentityCommandServiceImpl<R, Q, T>
+impl<R, Q, T, S> AdminIdentityCommandService for AdminIdentityCommandServiceImpl<R, Q, T, S>
 where
     R: AdminAccountRepository,
     Q: AdminIdentityQueryService,
     T: TokenService,
+    S: AdminSessionRepository,
 {
     async fn handle_create_initial_admin(
         &self,
@@ -116,7 +126,23 @@ where
             .generate_token(admin_account.id().value())
             .map_err(|e| AdminIdentityError::InternalError(e.to_string()))?;
 
-        Ok(token.value().to_string())
+        // Save session in Redis (replaces previous one)
+        let token_value = token.value();
+        let token_hash = AdminTokenHash::from_token(token_value);
+        self.session_repository
+            .set_session(admin_account.id().value(), token_hash)
+            .await?;
+
+        Ok(token_value.to_string())
+    }
+
+    async fn handle_admin_logout(
+        &self,
+        command: AdminLogoutCommand,
+    ) -> Result<(), AdminIdentityError> {
+        self.session_repository
+            .delete_session(command.admin_id)
+            .await
     }
 }
 

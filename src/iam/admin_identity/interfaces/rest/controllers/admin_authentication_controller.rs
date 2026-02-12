@@ -19,7 +19,10 @@ use crate::{
             domain::{
                 error::AdminIdentityError,
                 model::{
-                    commands::admin_login_command::AdminLoginCommand,
+                    commands::{
+                        admin_login_command::AdminLoginCommand,
+                        admin_logout_command::AdminLogoutCommand,
+                    },
                     queries::find_admin_by_username_query::FindAdminByUsernameQuery,
                 },
                 services::{
@@ -27,12 +30,19 @@ use crate::{
                     admin_identity_query_service::AdminIdentityQueryService,
                 },
             },
-            infrastructure::persistence::repositories::postgres::admin_account_repository_impl::AdminAccountRepositoryImpl,
-            interfaces::rest::resources::admin_login_resource::{
-                AdminLoginRequest, AdminLoginResponse,
+            infrastructure::persistence::repositories::{
+                postgres::admin_account_repository_impl::AdminAccountRepositoryImpl,
+                redis::admin_session_repository_impl::AdminSessionRepositoryImpl,
+            },
+            interfaces::rest::resources::{
+                admin_login_resource::{AdminLoginRequest, AdminLoginResponse},
+                admin_logout_resource::AdminLogoutRequest,
             },
         },
-        authentication::infrastructure::services::jwt_token_service::JwtTokenService,
+        authentication::{
+            domain::services::authentication_command_service::TokenService,
+            infrastructure::services::jwt_token_service::JwtTokenService,
+        },
     },
     shared::{
         infrastructure::services::account_lockout::{
@@ -97,15 +107,25 @@ pub async fn login_admin(
     let command_repository = AdminAccountRepositoryImpl::new(state.db.clone());
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+    let session_repository = AdminSessionRepositoryImpl::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
 
-    let command_service =
-        AdminIdentityCommandServiceImpl::new(command_repository, query_service, token_service);
+    let command_service = AdminIdentityCommandServiceImpl::new(
+        command_repository,
+        query_service,
+        token_service,
+        session_repository,
+    );
 
     match command_service.handle_admin_login(command).await {
         Ok(token) => {
             let _ = lockout_service
                 .reset_failure(&identity_key, ip_address.as_deref())
                 .await;
+            tracing::info!("Admin login successful for identity: {}", identity_key);
             (StatusCode::OK, Json(AdminLoginResponse { token })).into_response()
         }
         Err(AdminIdentityError::InvalidCredentials) => {
@@ -143,6 +163,70 @@ pub async fn login_admin(
             ErrorResponse::new("Admin authentication failed")
                 .with_code(StatusCode::INTERNAL_SERVER_ERROR.as_u16())
                 .into_response()
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/logout",
+    tag = "admin-auth",
+    request_body = AdminLogoutRequest,
+    responses(
+        (status = 200, description = "Admin logout successful"),
+        (status = 400, description = "Bad request"),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error")
+    )
+)]
+pub async fn logout_admin(
+    State(state): State<AppState>,
+    JsonExtractor(resource): JsonExtractor<AdminLogoutRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = resource.validate() {
+        return ErrorResponse::new(error.to_string())
+            .with_code(StatusCode::BAD_REQUEST.as_u16())
+            .into_response();
+    }
+
+    let token = resource.token;
+
+    let token_service =
+        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+    
+    let claims = match token_service.validate_token(&token) {
+        Ok(c) => c,
+        Err(_) => {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+    };
+
+    let command = AdminLogoutCommand { admin_id: claims.sub };
+
+    let query_repository = AdminAccountRepositoryImpl::new(state.db.clone());
+    let query_service = AdminIdentityQueryServiceImpl::new(query_repository);
+    let command_repository = AdminAccountRepositoryImpl::new(state.db.clone());
+    let session_repository = AdminSessionRepositoryImpl::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
+
+    let command_service = AdminIdentityCommandServiceImpl::new(
+        command_repository,
+        query_service,
+        token_service,
+        session_repository,
+    );
+
+    match command_service.handle_admin_logout(command).await {
+        Ok(_) => {
+            tracing::info!("Admin logout successful for ID: {}", claims.sub);
+            StatusCode::OK.into_response()
+        }
+        Err(error) => {
+            tracing::error!("admin logout failed: {}", error);
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
 }
