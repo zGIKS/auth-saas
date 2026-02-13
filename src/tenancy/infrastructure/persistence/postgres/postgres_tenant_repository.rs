@@ -115,6 +115,21 @@ impl TenantRepository for PostgresTenantRepository {
         }
     }
 
+    async fn find_all(&self, offset: u64, limit: u64) -> Result<Vec<Tenant>, TenantError> {
+        let models = TenantEntity::find()
+            .offset(offset)
+            .limit(limit)
+            .all(&self.db)
+            .await
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
+        let mut tenants = Vec::with_capacity(models.len());
+        for m in models {
+            tenants.push(map_model_to_entity(m)?);
+        }
+        Ok(tenants)
+    }
+
     async fn delete(&self, id: &TenantId) -> Result<(), TenantError> {
         TenantEntity::delete_by_id(id.value())
             .exec(&self.db)

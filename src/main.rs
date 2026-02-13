@@ -146,7 +146,9 @@ async fn main() {
         // Tenancy Routes
         .route(
             "/api/v1/tenants",
-            post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant).route_layer(
+            post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant)
+                .get(tenancy::interfaces::rest::controllers::tenant_controller::list_tenants)
+                .route_layer(
                 axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,

@@ -171,13 +171,14 @@ pub async fn confirm_registration(
 ) -> impl IntoResponse {
     // Validate query params
     if let Err(e) = params.validate() {
+        let error_msg = e.to_string();
         let error_url = format!(
             "{}/email-verification-failed?error=invalid_token&message={}",
             state
                 .frontend_url
                 .as_deref()
                 .unwrap_or("http://localhost:3000"),
-            urlencoding::encode(&e.to_string())
+            urlencoding::encode(&error_msg)
         );
         return Redirect::to(&error_url).into_response();
     }
@@ -186,13 +187,14 @@ pub async fn confirm_registration(
     let query = match ConfirmEmailQuery::new(params.token.clone()) {
         Ok(q) => q,
         Err(e) => {
+            let error_msg = e.to_string();
             let error_url = format!(
                 "{}/email-verification-failed?error=invalid_token&message={}",
                 state
                     .frontend_url
                     .as_deref()
                     .unwrap_or("http://localhost:3000"),
-                urlencoding::encode(&e.to_string())
+                urlencoding::encode(&error_msg)
             );
             return Redirect::to(&error_url).into_response();
         }

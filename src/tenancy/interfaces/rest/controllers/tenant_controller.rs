@@ -1,11 +1,11 @@
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, Path, Query as QueryExtractor, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -29,7 +29,8 @@ use crate::tenancy::domain::{
         rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
     },
     model::queries::{
-        get_tenant_query::GetTenantQuery, reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
+        get_tenant_query::GetTenantQuery, list_tenants_query::ListTenantsQuery,
+        reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
     },
     services::{
         tenant_command_service::TenantCommandService, tenant_query_service::TenantQueryService,
@@ -57,6 +58,72 @@ struct Claims {
     version: u32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ListTenantsParams {
+    pub offset: Option<u64>,
+    pub limit: Option<u64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/tenants",
+    tag = "tenancy",
+    security(("admin_bearer" = [])),
+    params(
+        ("offset" = Option<u64>, Query, description = "Pagination offset"),
+        ("limit" = Option<u64>, Query, description = "Pagination limit")
+    ),
+    responses(
+        (status = 200, description = "List of tenants", body = Vec<TenantResource>),
+        (status = 401, description = "Admin authentication required"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn list_tenants(
+    State(state): State<AppState>,
+    QueryExtractor(params): QueryExtractor<ListTenantsParams>,
+) -> impl IntoResponse {
+    let query = match ListTenantsQuery::new(params.offset, params.limit) {
+        Ok(q) => q,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
+
+    match service.handle_list_tenants(query).await {
+        Ok(tenants) => {
+            let mut resources = Vec::with_capacity(tenants.len());
+            for tenant in tenants {
+                // Generate a temporary anon key for each tenant (or we could omit it in the list for performance)
+                let now = Utc::now();
+                let exp = now + Duration::days(30);
+                let claims = Claims {
+                    iss: "saas-system".to_string(),
+                    tenant_id: tenant.id.value(),
+                    role: "anon".to_string(),
+                    iat: now.timestamp(),
+                    exp: exp.timestamp(),
+                    jti: Uuid::new_v4().to_string(),
+                    version: tenant.anon_key_version,
+                };
+                let key = encode(
+                    &Header::default(),
+                    &claims,
+                    &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+                ).unwrap_or_default();
+
+                resources.push(TenantResource::new(tenant, key));
+            }
+            (StatusCode::OK, Json(resources)).into_response()
+        }
+        Err(e) => {
+            tracing::error!("List tenants error: {}", e);
+            ErrorResponse::internal_error().into_response()
+        }
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/tenants",
@@ -81,8 +148,6 @@ pub async fn create_tenant(
 
     let command = match CreateTenantCommand::new(
         payload.name,
-        payload.google_client_id,
-        payload.google_client_secret,
     ) {
         Ok(cmd) => cmd,
         Err(e) => {

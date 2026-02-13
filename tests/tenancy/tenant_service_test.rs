@@ -34,6 +34,7 @@ mock! {
         async fn update(&self, tenant: Tenant) -> Result<Tenant, TenantError>;
         async fn find_by_id(&self, id: &TenantId) -> Result<Option<Tenant>, TenantError>;
         async fn find_by_name(&self, name: &TenantName) -> Result<Option<Tenant>, TenantError>;
+        async fn find_all(&self, offset: u64, limit: u64) -> Result<Vec<Tenant>, TenantError>;
         async fn delete(&self, id: &TenantId) -> Result<(), TenantError>;
     }
 }
@@ -74,8 +75,6 @@ async fn test_create_tenant_success() {
 
     let command = CreateTenantCommand::new(
         "test-project".to_string(),
-        None,
-        None,
     )
     .expect("Command should be valid");
 
@@ -126,8 +125,6 @@ async fn test_create_tenant_already_exists() {
 
     let command = CreateTenantCommand::new(
         "existing-project".to_string(),
-        None,
-        None,
     )
     .expect("Command should be valid");
 
@@ -145,8 +142,6 @@ async fn test_create_tenant_fails_with_invalid_name() {
     // This logic is mostly in the Command creation, but good to verify
     let result = CreateTenantCommand::new(
         "Invalid Name Here".to_string(), // Spaces not allowed
-        None,
-        None,
     );
 
     // Should return InvalidName error because of spaces
@@ -184,8 +179,6 @@ async fn test_security_generated_jwt_structure() {
 
     let command = CreateTenantCommand::new(
         "secure-app".to_string(),
-        None,
-        None,
     )
     .unwrap();
 

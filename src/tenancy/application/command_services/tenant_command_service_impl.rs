@@ -80,8 +80,8 @@ where
         let jwt_secret = generate_tenant_jwt_signing_secret();
         let auth_config = AuthConfig::new(
             jwt_secret,
-            command.google_client_id,
-            command.google_client_secret,
+            None,
+            None,
         )
         .map_err(TenantError::InvalidAuthConfig)?;
 
