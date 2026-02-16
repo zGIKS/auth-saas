@@ -132,7 +132,7 @@ where
 
         // Send Verification Email
         // Construct the verification link pointing to the FRONTEND
-        let frontend_url = std::env::var("FRONTEND_URL").expect("FRONTEND_URL must be set");
+        let frontend_url = load_frontend_url()?;
         validate_frontend_url(&frontend_url)?;
         let verification_link = format!("{}/verify?token={}", frontend_url, token.value());
 
@@ -226,7 +226,7 @@ where
         }
 
         // 4. Send Email
-        let frontend_url = std::env::var("FRONTEND_URL").expect("FRONTEND_URL must be set");
+        let frontend_url = load_frontend_url()?;
         validate_frontend_url(&frontend_url)?;
         let reset_link = format!("{}/reset-password?token={}", frontend_url, token.value());
 
@@ -300,4 +300,9 @@ fn validate_frontend_url(url: &str) -> Result<(), DomainError> {
             "FRONTEND_URL must use HTTPS for security, or HTTP only for localhost/127.0.0.1 in development".to_string(),
         ))
     }
+}
+
+fn load_frontend_url() -> Result<String, DomainError> {
+    std::env::var("FRONTEND_URL")
+        .map_err(|_| DomainError::InternalError("FRONTEND_URL must be set".to_string()))
 }

@@ -111,7 +111,8 @@ pub async fn list_tenants(
                     &Header::default(),
                     &claims,
                     &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
-                ).unwrap_or_default();
+                )
+                .unwrap_or_default();
 
                 resources.push(TenantResource::new(tenant, key));
             }
@@ -146,9 +147,7 @@ pub async fn create_tenant(
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
 
-    let command = match CreateTenantCommand::new(
-        payload.name,
-    ) {
+    let command = match CreateTenantCommand::new(payload.name) {
         Ok(cmd) => cmd,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
@@ -338,7 +337,8 @@ pub async fn rotate_google_oauth_config(
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.rotate_google_oauth_config(command).await {
         Ok(_) => (
@@ -388,7 +388,8 @@ pub async fn rotate_tenant_jwt_signing_key(
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.rotate_tenant_jwt_signing_key(command).await {
         Ok(_) => (

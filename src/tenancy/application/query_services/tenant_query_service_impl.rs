@@ -47,7 +47,10 @@ impl<R: TenantRepository> TenantQueryService for TenantQueryServiceImpl<R> {
         self.repository.find_by_id(&query.id).await
     }
 
-    async fn handle_list_tenants(&self, query: ListTenantsQuery) -> Result<Vec<Tenant>, TenantError> {
+    async fn handle_list_tenants(
+        &self,
+        query: ListTenantsQuery,
+    ) -> Result<Vec<Tenant>, TenantError> {
         self.repository.find_all(query.offset, query.limit).await
     }
 

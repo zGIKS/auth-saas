@@ -38,7 +38,6 @@ use crate::tenancy::domain::{
     repositories::tenant_repository::TenantRepository,
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
-use sea_orm::{Database, DatabaseConnection};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StateClaims {
@@ -130,17 +129,7 @@ pub async fn google_callback(
     Query(query): Query<GoogleCallbackQuery>,
     jar: CookieJar,
 ) -> (CookieJar, impl IntoResponse) {
-    let frontend_url = match state.frontend_url.as_deref() {
-        Some(url) => url,
-        None => {
-            return (
-                jar,
-                ErrorResponse::new("Frontend URL not configured")
-                    .with_code(StatusCode::INTERNAL_SERVER_ERROR.as_u16())
-                    .into_response(),
-            );
-        }
-    };
+    let frontend_url = state.frontend_url.as_str();
 
     // 1. Verify State (CSRF & Context)
     let state_token = match query.state {
@@ -356,17 +345,18 @@ pub async fn claim_token(
 
     let token_exchange_repo = TokenExchangeRepositoryImpl::new(state.redis.clone());
 
-    match token_exchange_repo.claim(payload.code, tenant_ctx.tenant.id.value()).await {
-        Ok(Some(tokens)) => {
-            (
-                StatusCode::OK,
-                Json(ClaimTokenResponse {
-                    token: tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                }),
-            )
-                .into_response()
-        }
+    match token_exchange_repo
+        .claim(payload.code, tenant_ctx.tenant.id.value())
+        .await
+    {
+        Ok(Some(tokens)) => (
+            StatusCode::OK,
+            Json(ClaimTokenResponse {
+                token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+            }),
+        )
+            .into_response(),
         Ok(None) => ErrorResponse::new("Invalid or expired code")
             .with_code(StatusCode::BAD_REQUEST.as_u16())
             .into_response(),
@@ -380,25 +370,11 @@ pub async fn claim_token(
 async fn resolve_tenant_db(
     state: &AppState,
     db_strategy: &DbStrategy,
-) -> Result<DatabaseConnection, ErrorResponse> {
+) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Shared { schema } => {
-            let connection_string = with_search_path(&state.base_database_url, schema);
-            Database::connect(&connection_string).await.map_err(|e| {
-                tracing::error!("Failed to connect to tenant database: {}", e);
-                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            })
-        }
+        DbStrategy::Shared { schema } => state.tenant_db_for_schema(schema).await.map_err(|e| {
+            tracing::error!("Failed to connect to tenant database: {}", e);
+            ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+        }),
     }
-}
-
-fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-    let search_path = format!("-csearch_path={},public", schema_name);
-    let option_value = urlencoding::encode(&search_path);
-    let separator = if base_connection_string.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    format!("{base_connection_string}{separator}options={option_value}")
 }

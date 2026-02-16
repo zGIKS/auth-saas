@@ -12,7 +12,10 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use auth_service::shared::infrastructure::persistence::redis as redis_infra;
+use auth_service::shared::interfaces::rest::configuration::web_configuration::WebConfiguration;
 use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() {
@@ -70,7 +73,7 @@ async fn main() {
         .parse()
         .expect("LOCKOUT_DURATION_SECONDS must be a number");
 
-    let frontend_url = std::env::var("FRONTEND_URL").ok();
+    let frontend_url = std::env::var("FRONTEND_URL").expect("FRONTEND_URL must be set");
 
     let google_redirect_uri =
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
@@ -122,6 +125,7 @@ async fn main() {
         jwt_secret,
         swagger_enabled,
         circuit_breaker: create_circuit_breaker(),
+        tenant_db_cache: Arc::new(RwLock::new(HashMap::new())),
     };
 
     let tenant_aware_routes = Router::new()
@@ -190,6 +194,7 @@ async fn main() {
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
+        .layer(WebConfiguration::cors())
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", port);

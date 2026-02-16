@@ -68,13 +68,9 @@ async fn bootstrap_initial_admin() -> Result<(), String> {
 
     let command_repository = AdminAccountRepositoryImpl::new(database);
     let token_service = JwtTokenService::new(jwt_secret, 3600);
-    let circuit_breaker = AppCircuitBreaker::new(
-        5,
-        Duration::from_secs(60),
-        Duration::from_secs(300),
-    ); // Default values for CLI
-    let session_repository =
-        AdminSessionRepositoryImpl::new(redis_client, 3600, circuit_breaker);
+    let circuit_breaker =
+        AppCircuitBreaker::new(5, Duration::from_secs(60), Duration::from_secs(300)); // Default values for CLI
+    let session_repository = AdminSessionRepositoryImpl::new(redis_client, 3600, circuit_breaker);
 
     let command_service = AdminIdentityCommandServiceImpl::new(
         command_repository,

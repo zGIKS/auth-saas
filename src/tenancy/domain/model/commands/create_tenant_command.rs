@@ -7,13 +7,9 @@ pub struct CreateTenantCommand {
 }
 
 impl CreateTenantCommand {
-    pub fn new(
-        name: String,
-    ) -> Result<Self, TenantError> {
+    pub fn new(name: String) -> Result<Self, TenantError> {
         let name_vo = TenantName::new(name).map_err(TenantError::InvalidName)?;
 
-        Ok(Self {
-            name: name_vo,
-        })
+        Ok(Self { name: name_vo })
     }
 }

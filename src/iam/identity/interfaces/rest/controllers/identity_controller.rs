@@ -6,7 +6,6 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
-use sea_orm::{Database, DatabaseConnection};
 use validator::Validate;
 
 use crate::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
@@ -169,15 +168,14 @@ pub async fn confirm_registration(
     Extension(tenant_ctx): Extension<TenantContext>,
     Query(params): Query<ConfirmEmailQueryParams>,
 ) -> impl IntoResponse {
+    let frontend_url = &state.frontend_url;
+
     // Validate query params
     if let Err(e) = params.validate() {
         let error_msg = e.to_string();
         let error_url = format!(
             "{}/email-verification-failed?error=invalid_token&message={}",
-            state
-                .frontend_url
-                .as_deref()
-                .unwrap_or("http://localhost:3000"),
+            frontend_url,
             urlencoding::encode(&error_msg)
         );
         return Redirect::to(&error_url).into_response();
@@ -190,10 +188,7 @@ pub async fn confirm_registration(
             let error_msg = e.to_string();
             let error_url = format!(
                 "{}/email-verification-failed?error=invalid_token&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode(&error_msg)
             );
             return Redirect::to(&error_url).into_response();
@@ -208,10 +203,7 @@ pub async fn confirm_registration(
         Err(_resp) => {
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode("Configuration error")
             );
             return Redirect::to(&error_url).into_response();
@@ -229,10 +221,7 @@ pub async fn confirm_registration(
             tracing::error!("Failed to initialize email sender: {}", e);
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode("Service temporarily unavailable")
             );
             return Redirect::to(&error_url).into_response();
@@ -264,13 +253,7 @@ pub async fn confirm_registration(
 
     match service.confirm_registration(command).await {
         Ok(_) => {
-            let success_url = format!(
-                "{}/email-verified?success=true",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000")
-            );
+            let success_url = format!("{}/email-verified?success=true", frontend_url);
             Redirect::to(&success_url).into_response()
         }
         Err(e) => {
@@ -284,10 +267,7 @@ pub async fn confirm_registration(
             };
             let error_url = format!(
                 "{}/email-verification-failed?error=verification_failed&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode(error_msg)
             );
             Redirect::to(&error_url).into_response()
@@ -481,25 +461,11 @@ pub async fn reset_password(
 async fn resolve_tenant_db(
     state: &AppState,
     db_strategy: &DbStrategy,
-) -> Result<DatabaseConnection, ErrorResponse> {
+) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Shared { schema } => {
-            let connection_string = with_search_path(&state.base_database_url, schema);
-            Database::connect(&connection_string).await.map_err(|e| {
-                tracing::error!("Failed to connect to tenant database: {}", e);
-                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            })
-        }
+        DbStrategy::Shared { schema } => state.tenant_db_for_schema(schema).await.map_err(|e| {
+            tracing::error!("Failed to connect to tenant database: {}", e);
+            ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+        }),
     }
-}
-
-fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-    let search_path = format!("-csearch_path={},public", schema_name);
-    let option_value = urlencoding::encode(&search_path);
-    let separator = if base_connection_string.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    format!("{base_connection_string}{separator}options={option_value}")
 }

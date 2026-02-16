@@ -1,12 +1,11 @@
-use async_trait::async_trait;
-use redis::AsyncCommands;
-use uuid::Uuid;
 use crate::iam::admin_identity::domain::{
-    error::AdminIdentityError,
-    model::value_objects::admin_token_hash::AdminTokenHash,
+    error::AdminIdentityError, model::value_objects::admin_token_hash::AdminTokenHash,
     repositories::admin_session_repository::AdminSessionRepository,
 };
 use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
+use async_trait::async_trait;
+use redis::AsyncCommands;
+use uuid::Uuid;
 
 pub struct AdminSessionRepositoryImpl {
     client: redis::Client,
@@ -34,9 +33,15 @@ impl AdminSessionRepositoryImpl {
 
 #[async_trait]
 impl AdminSessionRepository for AdminSessionRepositoryImpl {
-    async fn set_session(&self, admin_id: Uuid, token_hash: AdminTokenHash) -> Result<(), AdminIdentityError> {
+    async fn set_session(
+        &self,
+        admin_id: Uuid,
+        token_hash: AdminTokenHash,
+    ) -> Result<(), AdminIdentityError> {
         if !self.circuit_breaker.is_call_permitted().await {
-            return Err(AdminIdentityError::InternalError("Circuit breaker open: Redis unavailable".to_string()));
+            return Err(AdminIdentityError::InternalError(
+                "Circuit breaker open: Redis unavailable".to_string(),
+            ));
         }
 
         let mut con = match self.client.get_multiplexed_async_connection().await {
@@ -63,9 +68,14 @@ impl AdminSessionRepository for AdminSessionRepositoryImpl {
         }
     }
 
-    async fn get_session_hash(&self, admin_id: Uuid) -> Result<Option<AdminTokenHash>, AdminIdentityError> {
+    async fn get_session_hash(
+        &self,
+        admin_id: Uuid,
+    ) -> Result<Option<AdminTokenHash>, AdminIdentityError> {
         if !self.circuit_breaker.is_call_permitted().await {
-            return Err(AdminIdentityError::InternalError("Circuit breaker open: Redis unavailable".to_string()));
+            return Err(AdminIdentityError::InternalError(
+                "Circuit breaker open: Redis unavailable".to_string(),
+            ));
         }
 
         let mut con = match self.client.get_multiplexed_async_connection().await {
@@ -95,7 +105,9 @@ impl AdminSessionRepository for AdminSessionRepositoryImpl {
 
     async fn delete_session(&self, admin_id: Uuid) -> Result<(), AdminIdentityError> {
         if !self.circuit_breaker.is_call_permitted().await {
-            return Err(AdminIdentityError::InternalError("Circuit breaker open: Redis unavailable".to_string()));
+            return Err(AdminIdentityError::InternalError(
+                "Circuit breaker open: Redis unavailable".to_string(),
+            ));
         }
 
         let mut con = match self.client.get_multiplexed_async_connection().await {

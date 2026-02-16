@@ -12,5 +12,9 @@ pub struct ExchangeTokens {
 #[async_trait]
 pub trait TokenExchangeRepository: Send + Sync {
     async fn save(&self, tokens: ExchangeTokens) -> Result<String, FederationError>;
-    async fn claim(&self, code: String, tenant_id: Uuid) -> Result<Option<ExchangeTokens>, FederationError>;
+    async fn claim(
+        &self,
+        code: String,
+        tenant_id: Uuid,
+    ) -> Result<Option<ExchangeTokens>, FederationError>;
 }

@@ -14,8 +14,8 @@ use crate::tenancy::domain::{
     services::tenant_command_service::TenantCommandService,
 };
 use async_trait::async_trait;
-use rand::Rng;
 use jsonwebtoken::{EncodingKey, Header, encode};
+use rand::Rng;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -73,24 +73,16 @@ where
         let tenant_id = TenantId::random();
         let schema_name = format!("tenant_{}", tenant_id.value().to_string().replace("-", ""));
 
-        let db_strategy = crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
-            schema: schema_name.clone(),
-        };
+        let db_strategy =
+            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
+                schema: schema_name.clone(),
+            };
 
         let jwt_secret = generate_tenant_jwt_signing_secret();
-        let auth_config = AuthConfig::new(
-            jwt_secret,
-            None,
-            None,
-        )
-        .map_err(TenantError::InvalidAuthConfig)?;
+        let auth_config =
+            AuthConfig::new(jwt_secret, None, None).map_err(TenantError::InvalidAuthConfig)?;
 
-        let tenant = Tenant::new(
-            tenant_id,
-            command.name,
-            db_strategy,
-            auth_config,
-        );
+        let tenant = Tenant::new(tenant_id, command.name, db_strategy, auth_config);
 
         // 1. Provision Infrastructure
         self.provisioning_facade

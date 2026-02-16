@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use crate::iam::admin_identity::domain::error::AdminIdentityError;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct AdminLogoutCommand {

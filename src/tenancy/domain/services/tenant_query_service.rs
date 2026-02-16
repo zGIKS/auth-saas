@@ -11,7 +11,10 @@ use async_trait::async_trait;
 #[async_trait]
 pub trait TenantQueryService: Send + Sync {
     async fn get_tenant(&self, query: GetTenantQuery) -> Result<Option<Tenant>, TenantError>;
-    async fn handle_list_tenants(&self, query: ListTenantsQuery) -> Result<Vec<Tenant>, TenantError>;
+    async fn handle_list_tenants(
+        &self,
+        query: ListTenantsQuery,
+    ) -> Result<Vec<Tenant>, TenantError>;
     async fn reissue_tenant_anon_key(
         &self,
         query: ReissueTenantAnonKeyQuery,

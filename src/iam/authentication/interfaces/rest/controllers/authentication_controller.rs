@@ -32,7 +32,6 @@ use crate::shared::interfaces::rest::app_state::AppState;
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
 use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 use crate::tenancy::interfaces::rest::middleware::TenantContext;
-use sea_orm::{Database, DatabaseConnection};
 
 use axum::{
     extract::{ConnectInfo, Extension, Json, Query, State},
@@ -316,25 +315,11 @@ pub async fn verify_token(
 async fn resolve_tenant_db(
     state: &AppState,
     db_strategy: &DbStrategy,
-) -> Result<DatabaseConnection, ErrorResponse> {
+) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Shared { schema } => {
-            let connection_string = with_search_path(&state.base_database_url, schema);
-            Database::connect(&connection_string).await.map_err(|e| {
-                tracing::error!("Failed to connect to tenant database: {}", e);
-                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            })
-        }
+        DbStrategy::Shared { schema } => state.tenant_db_for_schema(schema).await.map_err(|e| {
+            tracing::error!("Failed to connect to tenant database: {}", e);
+            ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+        }),
     }
-}
-
-fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-    let search_path = format!("-csearch_path={},public", schema_name);
-    let option_value = urlencoding::encode(&search_path);
-    let separator = if base_connection_string.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    format!("{base_connection_string}{separator}options={option_value}")
 }

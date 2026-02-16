@@ -193,7 +193,7 @@ pub async fn logout_admin(
 
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
-    
+
     let claims = match token_service.validate_token(&token) {
         Ok(c) => c,
         Err(_) => {
@@ -201,7 +201,9 @@ pub async fn logout_admin(
         }
     };
 
-    let command = AdminLogoutCommand { admin_id: claims.sub };
+    let command = AdminLogoutCommand {
+        admin_id: claims.sub,
+    };
 
     let query_repository = AdminAccountRepositoryImpl::new(state.db.clone());
     let query_service = AdminIdentityQueryServiceImpl::new(query_repository);

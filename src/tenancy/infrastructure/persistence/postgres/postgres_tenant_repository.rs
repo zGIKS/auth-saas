@@ -71,13 +71,19 @@ impl TenantRepository for PostgresTenantRepository {
         };
 
         let result = TenantEntity::update_many()
-            .col_expr(model::Column::Name, Expr::value(tenant.name.value().to_string()))
+            .col_expr(
+                model::Column::Name,
+                Expr::value(tenant.name.value().to_string()),
+            )
             .col_expr(model::Column::SchemaName, Expr::value(schema_name))
             .col_expr(model::Column::DbStrategy, Expr::value(db_strategy_val))
             .col_expr(model::Column::AuthConfig, Expr::value(auth_config))
             .col_expr(model::Column::UpdatedAt, Expr::value(tenant.updated_at))
             .col_expr(model::Column::Active, Expr::value(tenant.active))
-            .col_expr(model::Column::AnonKeyVersion, Expr::value(tenant.anon_key_version as i32))
+            .col_expr(
+                model::Column::AnonKeyVersion,
+                Expr::value(tenant.anon_key_version as i32),
+            )
             .filter(model::Column::Id.eq(tenant.id.value()))
             .exec(&self.db)
             .await

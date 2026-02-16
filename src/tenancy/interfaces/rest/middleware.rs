@@ -49,8 +49,16 @@ pub async fn tenant_resolver(
     let (tenant_id, version) = if let Some(token_str) = token_str_opt {
         // 2. Decode API Key (JWT)
         let mut validation = Validation::default();
-        validation.validate_exp = true; 
-        validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
+        validation.validate_exp = true;
+        validation.set_required_spec_claims(&[
+            "iss",
+            "tenant_id",
+            "role",
+            "iat",
+            "exp",
+            "jti",
+            "version",
+        ]);
 
         let token_data = decode::<ApiKeyClaims>(
             token_str,
@@ -62,7 +70,10 @@ pub async fn tenant_resolver(
             StatusCode::UNAUTHORIZED
         })?;
 
-        (TenantId::new(token_data.claims.tenant_id), token_data.claims.version)
+        (
+            TenantId::new(token_data.claims.tenant_id),
+            token_data.claims.version,
+        )
     } else {
         // No credentials found
         return Err(StatusCode::UNAUTHORIZED);

@@ -73,10 +73,8 @@ async fn test_create_tenant_success() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
 
-    let command = CreateTenantCommand::new(
-        "test-project".to_string(),
-    )
-    .expect("Command should be valid");
+    let command =
+        CreateTenantCommand::new("test-project".to_string()).expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
@@ -123,10 +121,8 @@ async fn test_create_tenant_already_exists() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
 
-    let command = CreateTenantCommand::new(
-        "existing-project".to_string(),
-    )
-    .expect("Command should be valid");
+    let command =
+        CreateTenantCommand::new("existing-project".to_string()).expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
@@ -177,17 +173,22 @@ async fn test_security_generated_jwt_structure() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret.clone());
 
-    let command = CreateTenantCommand::new(
-        "secure-app".to_string(),
-    )
-    .unwrap();
+    let command = CreateTenantCommand::new("secure-app".to_string()).unwrap();
 
     let (tenant, key) = service.create_tenant(command).await.unwrap();
 
     // Verify JWT Integrity
     let mut validation = Validation::new(Algorithm::HS256);
-    validation.validate_exp = true; 
-    validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
+    validation.validate_exp = true;
+    validation.set_required_spec_claims(&[
+        "iss",
+        "tenant_id",
+        "role",
+        "iat",
+        "exp",
+        "jti",
+        "version",
+    ]);
 
     let decoded = decode::<TestClaims>(
         &key,
@@ -372,7 +373,8 @@ async fn test_rotate_tenant_jwt_signing_key_success() {
             tenant.auth_config.jwt_secret != old_tenant_jwt
                 && tenant.auth_config.jwt_secret.len() == 128
                 && tenant.auth_config.google_client_id.as_deref() == Some("google-client-id")
-                && tenant.auth_config.google_client_secret.as_deref() == Some("google-client-secret")
+                && tenant.auth_config.google_client_secret.as_deref()
+                    == Some("google-client-secret")
         })
         .returning(Ok);
 

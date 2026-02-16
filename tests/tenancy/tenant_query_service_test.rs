@@ -70,10 +70,7 @@ async fn test_reissue_tenant_anon_key_success() {
         .returning(move |_| Ok(Some(tenant.clone())));
 
     // Expect update because of version increment
-    mock_repo
-        .expect_update()
-        .times(1)
-        .returning(Ok);
+    mock_repo.expect_update().times(1).returning(Ok);
 
     let service = TenantQueryServiceImpl::new(mock_repo, jwt_secret.clone());
     let query = ReissueTenantAnonKeyQuery::new(tenant_id);
@@ -82,7 +79,15 @@ async fn test_reissue_tenant_anon_key_success() {
 
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
-    validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
+    validation.set_required_spec_claims(&[
+        "iss",
+        "tenant_id",
+        "role",
+        "iat",
+        "exp",
+        "jti",
+        "version",
+    ]);
 
     let decoded = decode::<TestClaims>(
         &token,
