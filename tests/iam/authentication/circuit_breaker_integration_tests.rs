@@ -1,5 +1,5 @@
-use auth_service::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
-use auth_service::shared::infrastructure::services::account_lockout::{
+use asphanyx::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
+use asphanyx::shared::infrastructure::services::account_lockout::{
     AccountLockoutService, AccountLockoutVerifier, LockoutError,
 };
 use std::time::Duration;

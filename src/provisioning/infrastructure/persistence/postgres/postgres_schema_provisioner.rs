@@ -5,6 +5,7 @@ use crate::provisioning::domain::{
 use async_trait::async_trait;
 use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Schema, Statement};
 use std::time::Duration;
+use url::Url;
 
 pub struct PostgresSchemaProvisioner {
     base_connection_string: String,
@@ -39,40 +40,46 @@ impl PostgresSchemaProvisioner {
         ))
     }
 
-    fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-        let search_path = format!("-csearch_path={},public", schema_name);
-        let option_value = urlencoding::encode(&search_path);
-        let separator = if base_connection_string.contains('?') {
-            "&"
-        } else {
-            "?"
-        };
-        format!("{base_connection_string}{separator}options={option_value}")
+    fn with_database_name(
+        base_connection_string: &str,
+        database_name: &str,
+    ) -> Result<String, DomainError> {
+        let mut parsed = Url::parse(base_connection_string).map_err(|e| {
+            DomainError::InfrastructureError(format!("Invalid DATABASE_URL: {}", e))
+        })?;
+        parsed.set_path(&format!("/{}", database_name));
+        Ok(parsed.to_string())
+    }
+
+    fn quote_ident(ident: &str) -> String {
+        format!("\"{}\"", ident.replace('\"', "\"\""))
     }
 }
 
 #[async_trait]
 impl SchemaProvisioner for PostgresSchemaProvisioner {
-    async fn create_schema(&self, schema_name: &str) -> Result<(), DomainError> {
+    async fn create_database(&self, database_name: &str) -> Result<(), DomainError> {
         let db =
             Self::connect_with_retry(&self.base_connection_string, 10, Duration::from_millis(500))
                 .await
                 .map_err(DomainError::InfrastructureError)?;
 
-        let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS \"{}\"", schema_name);
+        let create_database_sql = format!("CREATE DATABASE {}", Self::quote_ident(database_name));
         db.execute(Statement::from_string(
             DatabaseBackend::Postgres,
-            create_schema_sql,
+            create_database_sql,
         ))
         .await
-        .map_err(|e| DomainError::InfrastructureError(format!("Failed to create schema: {}", e)))?;
+        .map_err(|e| {
+            DomainError::InfrastructureError(format!("Failed to create database: {}", e))
+        })?;
 
         Ok(())
     }
 
-    async fn run_migrations(&self, schema_name: &str) -> Result<(), DomainError> {
+    async fn run_migrations(&self, database_name: &str) -> Result<(), DomainError> {
         let tenant_connection_string =
-            Self::with_search_path(&self.base_connection_string, schema_name);
+            Self::with_database_name(&self.base_connection_string, database_name)?;
         let db =
             Self::connect_with_retry(&tenant_connection_string, 10, Duration::from_millis(500))
                 .await
@@ -93,19 +100,40 @@ impl SchemaProvisioner for PostgresSchemaProvisioner {
         Ok(())
     }
 
-    async fn drop_schema(&self, schema_name: &str) -> Result<(), DomainError> {
+    async fn drop_database(&self, database_name: &str) -> Result<(), DomainError> {
         let db =
             Self::connect_with_retry(&self.base_connection_string, 10, Duration::from_millis(500))
                 .await
                 .map_err(DomainError::InfrastructureError)?;
 
-        let drop_schema_sql = format!("DROP SCHEMA IF EXISTS \"{}\" CASCADE", schema_name);
+        let terminate_connections_sql = format!(
+            "SELECT pg_terminate_backend(pid) \
+             FROM pg_stat_activity \
+             WHERE datname = '{}' AND pid <> pg_backend_pid()",
+            database_name.replace('\'', "''")
+        );
         db.execute(Statement::from_string(
             DatabaseBackend::Postgres,
-            drop_schema_sql,
+            terminate_connections_sql,
         ))
         .await
-        .map_err(|e| DomainError::InfrastructureError(format!("Failed to drop schema: {}", e)))?;
+        .map_err(|e| {
+            DomainError::InfrastructureError(format!(
+                "Failed to terminate database connections: {}",
+                e
+            ))
+        })?;
+
+        let drop_database_sql = format!(
+            "DROP DATABASE IF EXISTS {}",
+            Self::quote_ident(database_name)
+        );
+        db.execute(Statement::from_string(
+            DatabaseBackend::Postgres,
+            drop_database_sql,
+        ))
+        .await
+        .map_err(|e| DomainError::InfrastructureError(format!("Failed to drop database: {}", e)))?;
 
         Ok(())
     }

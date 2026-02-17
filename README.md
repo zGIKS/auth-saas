@@ -21,8 +21,8 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
 
 1. Clona el repositorio:
    ```bash
-   git clone <repository-url> auth-service
-   cd auth-service
+   git clone <repository-url> asphanyx
+   cd asphanyx
    ```
 2. Ajusta `.env` con las variables obligatorias (ejemplo mínimo en `.env`).
 3. Compila y ejecuta:
@@ -81,6 +81,26 @@ Variables imprescindibles (usa `.env`):
   ```bash
   cargo run --bin admin_identity_recover_cli
   ```
+
+### Crear o recuperar admin desde Docker
+
+1. Construye/actualiza imagen:
+   ```bash
+   docker compose build app
+   ```
+2. Crear admin inicial (solo primera vez):
+   ```bash
+   docker compose run --rm --entrypoint /usr/local/bin/admin_identity_bootstrap_cli app
+   ```
+3. Recuperar acceso admin (si ya existe admin y quieres rotar credenciales):
+   ```bash
+   docker compose run --rm --entrypoint /usr/local/bin/admin_identity_recover_cli app
+   ```
+
+Ambos comandos imprimen en consola:
+
+- `username=<valor>`
+- `password=<valor>`
 
 Consulta `.env` para un set completo de ejemplo local.
 

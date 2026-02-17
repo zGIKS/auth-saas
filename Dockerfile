@@ -10,7 +10,7 @@ RUN apt-get update \
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 
-RUN cargo build --release --locked
+RUN cargo build --release --locked --bins
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
@@ -20,7 +20,9 @@ RUN apt-get update \
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin appuser
 
 WORKDIR /app
-COPY --from=builder /app/target/release/auth-service /usr/local/bin/auth-service
+COPY --from=builder /app/target/release/asphanyx /usr/local/bin/asphanyx
+COPY --from=builder /app/target/release/admin_identity_bootstrap_cli /usr/local/bin/admin_identity_bootstrap_cli
+COPY --from=builder /app/target/release/admin_identity_recover_cli /usr/local/bin/admin_identity_recover_cli
 
 USER appuser:appuser
 
@@ -29,4 +31,4 @@ ENV RUST_LOG=info
 
 EXPOSE 8081
 
-ENTRYPOINT ["/usr/local/bin/auth-service"]
+ENTRYPOINT ["/usr/local/bin/asphanyx"]

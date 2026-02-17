@@ -6,6 +6,7 @@ use crate::tenancy::domain::{
             create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
             rotate_google_oauth_config_command::RotateGoogleOauthConfigCommand,
             rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
+            update_tenant_frontend_url_command::UpdateTenantFrontendUrlCommand,
         },
         tenant::Tenant,
         value_objects::{auth_config::AuthConfig, tenant_id::TenantId},
@@ -14,8 +15,8 @@ use crate::tenancy::domain::{
     services::tenant_command_service::TenantCommandService,
 };
 use async_trait::async_trait;
-use rand::Rng;
 use jsonwebtoken::{EncodingKey, Header, encode};
+use rand::Rng;
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -71,30 +72,30 @@ where
         }
 
         let tenant_id = TenantId::random();
-        let schema_name = format!("tenant_{}", tenant_id.value().to_string().replace("-", ""));
+        let database_name = format!("tenant_{}", tenant_id.value().to_string().replace("-", ""));
 
-        let db_strategy = crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
-            schema: schema_name.clone(),
-        };
+        let db_strategy =
+            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Isolated {
+                database: database_name.clone(),
+            };
 
         let jwt_secret = generate_tenant_jwt_signing_secret();
-        let auth_config = AuthConfig::new(
+        let auth_config = AuthConfig::new_with_frontend_url(
             jwt_secret,
-            command.google_client_id,
-            command.google_client_secret,
+            None,
+            None,
+            command
+                .frontend_url
+                .as_ref()
+                .map(|frontend_url| frontend_url.value().to_string()),
         )
         .map_err(TenantError::InvalidAuthConfig)?;
 
-        let tenant = Tenant::new(
-            tenant_id,
-            command.name,
-            db_strategy,
-            auth_config,
-        );
+        let tenant = Tenant::new(tenant_id, command.name, db_strategy, auth_config);
 
         // 1. Provision Infrastructure
         self.provisioning_facade
-            .provision_tenant(tenant.id.value().to_string(), schema_name)
+            .provision_tenant(tenant.id.value().to_string(), database_name)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
@@ -118,14 +119,14 @@ where
             .ok_or(TenantError::NotFound)?;
 
         // 2. Deprovision Infrastructure
-        let schema_name = match &tenant.db_strategy {
-            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
-                schema,
-            } => schema.clone(),
+        let database_name = match &tenant.db_strategy {
+            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Isolated {
+                database,
+            } => database.clone(),
         };
 
         self.provisioning_facade
-            .deprovision_tenant(tenant.id.value().to_string(), schema_name)
+            .deprovision_tenant(tenant.id.value().to_string(), database_name)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
@@ -145,10 +146,11 @@ where
             .await?
             .ok_or(TenantError::NotFound)?;
 
-        let updated_auth_config = AuthConfig::new(
+        let updated_auth_config = AuthConfig::new_with_frontend_url(
             tenant.auth_config.jwt_secret.clone(),
             Some(command.google_client_id),
             Some(command.google_client_secret),
+            tenant.auth_config.frontend_url.clone(),
         )
         .map_err(TenantError::InvalidAuthConfig)?;
 
@@ -167,10 +169,33 @@ where
             .ok_or(TenantError::NotFound)?;
 
         let next_jwt_secret = generate_tenant_jwt_signing_secret();
-        let updated_auth_config = AuthConfig::new(
+        let updated_auth_config = AuthConfig::new_with_frontend_url(
             next_jwt_secret,
             tenant.auth_config.google_client_id.clone(),
             tenant.auth_config.google_client_secret.clone(),
+            tenant.auth_config.frontend_url.clone(),
+        )
+        .map_err(TenantError::InvalidAuthConfig)?;
+
+        tenant.update_auth_config(updated_auth_config);
+        self.repository.update(tenant).await
+    }
+
+    async fn update_tenant_frontend_url(
+        &self,
+        command: UpdateTenantFrontendUrlCommand,
+    ) -> Result<Tenant, TenantError> {
+        let mut tenant = self
+            .repository
+            .find_by_id(&command.tenant_id)
+            .await?
+            .ok_or(TenantError::NotFound)?;
+
+        let updated_auth_config = AuthConfig::new_with_frontend_url(
+            tenant.auth_config.jwt_secret.clone(),
+            tenant.auth_config.google_client_id.clone(),
+            tenant.auth_config.google_client_secret.clone(),
+            Some(command.frontend_url.value().to_string()),
         )
         .map_err(TenantError::InvalidAuthConfig)?;
 

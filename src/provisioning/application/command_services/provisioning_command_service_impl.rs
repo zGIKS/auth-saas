@@ -27,13 +27,17 @@ impl<S: SchemaProvisioner> ProvisioningCommandService for ProvisioningCommandSer
         &self,
         command: ProvisionTenantResourcesCommand,
     ) -> Result<(), DomainError> {
-        let schema_name = command.schema_name.value();
+        let database_name = command.database_name.value();
 
-        // 1. Create Schema
-        self.schema_provisioner.create_schema(schema_name).await?;
+        // 1. Create Database
+        self.schema_provisioner
+            .create_database(database_name)
+            .await?;
 
         // 2. Run Migrations (Create Tables)
-        self.schema_provisioner.run_migrations(schema_name).await?;
+        self.schema_provisioner
+            .run_migrations(database_name)
+            .await?;
 
         // 3. (Optional) Emit TenantResourcesProvisioned event
 
@@ -44,10 +48,10 @@ impl<S: SchemaProvisioner> ProvisioningCommandService for ProvisioningCommandSer
         &self,
         command: DeprovisionTenantResourcesCommand,
     ) -> Result<(), DomainError> {
-        let schema_name = command.schema_name.value();
+        let database_name = command.database_name.value();
 
-        // 1. Drop Schema (CASCADE)
-        self.schema_provisioner.drop_schema(schema_name).await?;
+        // 1. Drop Database
+        self.schema_provisioner.drop_database(database_name).await?;
 
         // 2. (Optional) Emit TenantResourcesDeprovisioned event
 

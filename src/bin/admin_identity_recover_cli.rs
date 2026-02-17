@@ -1,4 +1,4 @@
-use auth_service::iam::admin_identity::infrastructure::persistence::postgres::model::{
+use asphanyx::iam::admin_identity::infrastructure::persistence::postgres::model::{
     ActiveModel, Column, Entity as AdminAccountEntity,
 };
 use bcrypt::{DEFAULT_COST, hash};

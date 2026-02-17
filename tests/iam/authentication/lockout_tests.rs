@@ -1,5 +1,5 @@
-use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
-use auth_service::shared::infrastructure::services::account_lockout::{
+use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use asphanyx::shared::infrastructure::services::account_lockout::{
     AccountLockoutService, AccountLockoutVerifier,
 };
 use redis::AsyncCommands;

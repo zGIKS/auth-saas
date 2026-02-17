@@ -38,7 +38,6 @@ use crate::tenancy::domain::{
     repositories::tenant_repository::TenantRepository,
 };
 use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
-use sea_orm::{Database, DatabaseConnection};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StateClaims {
@@ -77,8 +76,16 @@ pub async fn redirect_to_google(
 
     // Set cookie with nonce
     let mut cookie = Cookie::new("oauth_state", nonce.clone());
+    let frontend_url = tenant_ctx
+        .tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .unwrap_or(state.frontend_url.as_str());
+    let secure_cookie =
+        state.google_redirect_uri.starts_with("https://") || frontend_url.starts_with("https://");
     cookie.set_path("/");
-    cookie.set_secure(true);
+    cookie.set_secure(secure_cookie);
     cookie.set_http_only(true);
     cookie.set_same_site(SameSite::Lax);
     // cookie.set_max_age(...) // defaults to session if not set, or we can set it to 10 mins
@@ -130,17 +137,7 @@ pub async fn google_callback(
     Query(query): Query<GoogleCallbackQuery>,
     jar: CookieJar,
 ) -> (CookieJar, impl IntoResponse) {
-    let frontend_url = match state.frontend_url.as_deref() {
-        Some(url) => url,
-        None => {
-            return (
-                jar,
-                ErrorResponse::new("Frontend URL not configured")
-                    .with_code(StatusCode::INTERNAL_SERVER_ERROR.as_u16())
-                    .into_response(),
-            );
-        }
-    };
+    let fallback_frontend_url = state.frontend_url.as_str();
 
     // 1. Verify State (CSRF & Context)
     let state_token = match query.state {
@@ -148,7 +145,7 @@ pub async fn google_callback(
         None => {
             let redirect_url = format!(
                 "{}/login?error=csrf_error&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode("Missing state parameter")
             );
             return (jar, Redirect::to(&redirect_url).into_response());
@@ -164,7 +161,7 @@ pub async fn google_callback(
         Err(e) => {
             let redirect_url = format!(
                 "{}/login?error=csrf_error&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode(&format!("Invalid or expired state: {}", e))
             );
             return (jar, Redirect::to(&redirect_url).into_response());
@@ -176,7 +173,7 @@ pub async fn google_callback(
     if cookie_nonce.is_none() || cookie_nonce.unwrap() != token_data.claims.nonce {
         let redirect_url = format!(
             "{}/login?error=csrf_error&message={}",
-            frontend_url,
+            fallback_frontend_url,
             urlencoding::encode("State mismatch (CSRF detected)")
         );
         // Clear cookie just in case
@@ -196,7 +193,7 @@ pub async fn google_callback(
         Ok(None) => {
             let redirect_url = format!(
                 "{}/login?error=tenant_not_found&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode("Tenant not found")
             );
             return (jar, Redirect::to(&redirect_url).into_response());
@@ -205,12 +202,18 @@ pub async fn google_callback(
             tracing::error!("Failed to load tenant: {}", e);
             let redirect_url = format!(
                 "{}/login?error=internal_error&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode("Internal error loading tenant")
             );
             return (jar, Redirect::to(&redirect_url).into_response());
         }
     };
+
+    let frontend_url = tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .unwrap_or(fallback_frontend_url);
 
     // 3. Validate Tenant Configuration
     let google_client_id = match &tenant.auth_config.google_client_id {
@@ -356,17 +359,18 @@ pub async fn claim_token(
 
     let token_exchange_repo = TokenExchangeRepositoryImpl::new(state.redis.clone());
 
-    match token_exchange_repo.claim(payload.code, tenant_ctx.tenant.id.value()).await {
-        Ok(Some(tokens)) => {
-            (
-                StatusCode::OK,
-                Json(ClaimTokenResponse {
-                    token: tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                }),
-            )
-                .into_response()
-        }
+    match token_exchange_repo
+        .claim(payload.code, tenant_ctx.tenant.id.value())
+        .await
+    {
+        Ok(Some(tokens)) => (
+            StatusCode::OK,
+            Json(ClaimTokenResponse {
+                token: tokens.access_token,
+                refresh_token: tokens.refresh_token,
+            }),
+        )
+            .into_response(),
         Ok(None) => ErrorResponse::new("Invalid or expired code")
             .with_code(StatusCode::BAD_REQUEST.as_u16())
             .into_response(),
@@ -380,25 +384,13 @@ pub async fn claim_token(
 async fn resolve_tenant_db(
     state: &AppState,
     db_strategy: &DbStrategy,
-) -> Result<DatabaseConnection, ErrorResponse> {
+) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Shared { schema } => {
-            let connection_string = with_search_path(&state.base_database_url, schema);
-            Database::connect(&connection_string).await.map_err(|e| {
+        DbStrategy::Isolated { database } => {
+            state.tenant_db_for_database(database).await.map_err(|e| {
                 tracing::error!("Failed to connect to tenant database: {}", e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
             })
         }
     }
-}
-
-fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-    let search_path = format!("-csearch_path={},public", schema_name);
-    let option_value = urlencoding::encode(&search_path);
-    let separator = if base_connection_string.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    format!("{base_connection_string}{separator}options={option_value}")
 }

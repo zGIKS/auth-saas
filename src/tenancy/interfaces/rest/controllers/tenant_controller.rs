@@ -1,11 +1,11 @@
 use axum::{
-    extract::{Json, Path, State},
+    extract::{Json, Path, Query as QueryExtractor, State},
     http::StatusCode,
     response::IntoResponse,
 };
 use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -27,9 +27,11 @@ use crate::tenancy::domain::{
         create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
         rotate_google_oauth_config_command::RotateGoogleOauthConfigCommand,
         rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
+        update_tenant_frontend_url_command::UpdateTenantFrontendUrlCommand,
     },
     model::queries::{
-        get_tenant_query::GetTenantQuery, reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
+        get_tenant_query::GetTenantQuery, list_tenants_query::ListTenantsQuery,
+        reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
     },
     services::{
         tenant_command_service::TenantCommandService, tenant_query_service::TenantQueryService,
@@ -44,6 +46,9 @@ use crate::tenancy::interfaces::rest::resources::{
     },
     rotate_tenant_jwt_signing_key_resource::RotateTenantJwtSigningKeyResponse,
     tenant_resource::TenantResource,
+    update_tenant_frontend_url_resource::{
+        UpdateTenantFrontendUrlRequest, UpdateTenantFrontendUrlResponse,
+    },
 };
 
 #[derive(Debug, Serialize)]
@@ -55,6 +60,73 @@ struct Claims {
     exp: i64,
     jti: String,
     version: u32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ListTenantsParams {
+    pub offset: Option<u64>,
+    pub limit: Option<u64>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/tenants",
+    tag = "tenancy",
+    security(("admin_bearer" = [])),
+    params(
+        ("offset" = Option<u64>, Query, description = "Pagination offset"),
+        ("limit" = Option<u64>, Query, description = "Pagination limit")
+    ),
+    responses(
+        (status = 200, description = "List of tenants", body = Vec<TenantResource>),
+        (status = 401, description = "Admin authentication required"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn list_tenants(
+    State(state): State<AppState>,
+    QueryExtractor(params): QueryExtractor<ListTenantsParams>,
+) -> impl IntoResponse {
+    let query = match ListTenantsQuery::new(params.offset, params.limit) {
+        Ok(q) => q,
+        Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    };
+
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
+
+    match service.handle_list_tenants(query).await {
+        Ok(tenants) => {
+            let mut resources = Vec::with_capacity(tenants.len());
+            for tenant in tenants {
+                // Generate a temporary anon key for each tenant (or we could omit it in the list for performance)
+                let now = Utc::now();
+                let exp = now + Duration::days(30);
+                let claims = Claims {
+                    iss: "saas-system".to_string(),
+                    tenant_id: tenant.id.value(),
+                    role: "anon".to_string(),
+                    iat: now.timestamp(),
+                    exp: exp.timestamp(),
+                    jti: Uuid::new_v4().to_string(),
+                    version: tenant.anon_key_version,
+                };
+                let key = encode(
+                    &Header::default(),
+                    &claims,
+                    &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+                )
+                .unwrap_or_default();
+
+                resources.push(TenantResource::new(tenant, key));
+            }
+            (StatusCode::OK, Json(resources)).into_response()
+        }
+        Err(e) => {
+            tracing::error!("List tenants error: {}", e);
+            ErrorResponse::internal_error().into_response()
+        }
+    }
 }
 
 #[utoipa::path(
@@ -79,11 +151,7 @@ pub async fn create_tenant(
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
 
-    let command = match CreateTenantCommand::new(
-        payload.name,
-        payload.google_client_id,
-        payload.google_client_secret,
-    ) {
+    let command = match CreateTenantCommand::new(payload.name, payload.frontend_url) {
         Ok(cmd) => cmd,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
@@ -273,7 +341,8 @@ pub async fn rotate_google_oauth_config(
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.rotate_google_oauth_config(command).await {
         Ok(_) => (
@@ -323,7 +392,8 @@ pub async fn rotate_tenant_jwt_signing_key(
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
     let repository = PostgresTenantRepository::new(state.db.clone());
-    let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.rotate_tenant_jwt_signing_key(command).await {
         Ok(_) => (
@@ -339,6 +409,74 @@ pub async fn rotate_tenant_jwt_signing_key(
                 .into_response(),
             _ => {
                 tracing::error!("Rotate tenant JWT signing key error: {}", e);
+                ErrorResponse::internal_error().into_response()
+            }
+        },
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/tenants/{id}/frontend-url",
+    tag = "tenancy",
+    security(("admin_bearer" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Tenant ID")
+    ),
+    request_body = UpdateTenantFrontendUrlRequest,
+    responses(
+        (status = 200, description = "Tenant frontend URL updated successfully", body = UpdateTenantFrontendUrlResponse),
+        (status = 400, description = "Bad Request"),
+        (status = 401, description = "Admin authentication required"),
+        (status = 404, description = "Tenant not found"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn update_tenant_frontend_url(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateTenantFrontendUrlRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = payload.validate() {
+        return ErrorResponse::new(e.to_string())
+            .with_code(StatusCode::BAD_REQUEST.as_u16())
+            .into_response();
+    }
+
+    let command = match UpdateTenantFrontendUrlCommand::new(id, payload.frontend_url) {
+        Ok(c) => c,
+        Err(e) => {
+            return ErrorResponse::new(e.to_string())
+                .with_code(StatusCode::BAD_REQUEST.as_u16())
+                .into_response();
+        }
+    };
+
+    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
+    let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+
+    match service.update_tenant_frontend_url(command).await {
+        Ok(updated_tenant) => (
+            StatusCode::OK,
+            Json(UpdateTenantFrontendUrlResponse {
+                message: "Tenant frontend URL updated successfully".to_string(),
+                frontend_url: updated_tenant.auth_config.frontend_url.unwrap_or_default(),
+            }),
+        )
+            .into_response(),
+        Err(e) => match e {
+            TenantError::NotFound => ErrorResponse::new("Tenant not found")
+                .with_code(StatusCode::NOT_FOUND.as_u16())
+                .into_response(),
+            TenantError::InvalidAuthConfig(msg) => ErrorResponse::new(msg)
+                .with_code(StatusCode::BAD_REQUEST.as_u16())
+                .into_response(),
+            _ => {
+                tracing::error!("Update tenant frontend URL error: {}", e);
                 ErrorResponse::internal_error().into_response()
             }
         },
