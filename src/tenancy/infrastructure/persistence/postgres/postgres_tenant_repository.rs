@@ -32,14 +32,14 @@ impl TenantRepository for PostgresTenantRepository {
         let auth_config = serde_json::to_value(&tenant.auth_config)
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
-        let schema_name = match &tenant.db_strategy {
-            DbStrategy::Shared { schema } => schema.clone(),
+        let database_name = match &tenant.db_strategy {
+            DbStrategy::Isolated { database } => database.clone(),
         };
 
         let tenant_model = model::ActiveModel {
             id: Set(tenant.id.value()),
             name: Set(tenant.name.value().to_string()),
-            schema_name: Set(schema_name),
+            database_name: Set(database_name),
             db_strategy: Set(db_strategy_val),
             auth_config: Set(auth_config),
             created_at: Set(tenant.created_at),
@@ -66,8 +66,8 @@ impl TenantRepository for PostgresTenantRepository {
         let auth_config = serde_json::to_value(&tenant.auth_config)
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
-        let schema_name = match &tenant.db_strategy {
-            DbStrategy::Shared { schema } => schema.clone(),
+        let database_name = match &tenant.db_strategy {
+            DbStrategy::Isolated { database } => database.clone(),
         };
 
         let result = TenantEntity::update_many()
@@ -75,7 +75,7 @@ impl TenantRepository for PostgresTenantRepository {
                 model::Column::Name,
                 Expr::value(tenant.name.value().to_string()),
             )
-            .col_expr(model::Column::SchemaName, Expr::value(schema_name))
+            .col_expr(model::Column::DatabaseName, Expr::value(database_name))
             .col_expr(model::Column::DbStrategy, Expr::value(db_strategy_val))
             .col_expr(model::Column::AuthConfig, Expr::value(auth_config))
             .col_expr(model::Column::UpdatedAt, Expr::value(tenant.updated_at))

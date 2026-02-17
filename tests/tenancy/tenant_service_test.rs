@@ -45,8 +45,8 @@ mock! {
 
     #[async_trait]
     impl ProvisioningFacade for ProvisioningFacade {
-        async fn provision_tenant(&self, tenant_id: String, schema_name: String) -> Result<(), DomainError>;
-        async fn deprovision_tenant(&self, tenant_id: String, schema_name: String) -> Result<(), DomainError>;
+        async fn provision_tenant(&self, tenant_id: String, database_name: String) -> Result<(), DomainError>;
+        async fn deprovision_tenant(&self, tenant_id: String, database_name: String) -> Result<(), DomainError>;
     }
 }
 
@@ -83,9 +83,9 @@ async fn test_create_tenant_success() {
 
     assert_eq!(tenant.name.value(), "test-project");
     match tenant.db_strategy {
-        DbStrategy::Shared { schema } => {
-            assert!(schema.starts_with("tenant_"));
-            assert_eq!(schema.len(), 7 + 32); // tenant_ + uuid without hyphens
+        DbStrategy::Isolated { database } => {
+            assert!(database.starts_with("tenant_"));
+            assert_eq!(database.len(), 7 + 32); // tenant_ + uuid without hyphens
         }
     }
     // Verify Key is not empty
@@ -104,8 +104,7 @@ async fn test_create_tenant_already_exists() {
         Ok(Some(Tenant::new(
             TenantId::random(),
             name.clone(),
-            DbStrategy::Shared {
-                schema: "tenant_existing_project".to_string(),
+            DbStrategy::Isolated { database: "tenant_existing_project".to_string(),
             },
             AuthConfig::new(
                 "dummy_secret_also_needs_to_be_long_123456789".to_string(),
@@ -221,8 +220,7 @@ async fn test_delete_tenant_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("to-delete".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_to_delete".to_string(),
+        DbStrategy::Isolated { database: "tenant_to_delete".to_string(),
         },
         AuthConfig::new(
             "secret_key_that_is_long_enough_32_chars".to_string(),
@@ -242,7 +240,7 @@ async fn test_delete_tenant_success() {
     // Expect deprovision
     mock_provisioner
         .expect_deprovision_tenant()
-        .withf(move |id, schema| id == &tenant_id.to_string() && schema == "tenant_to_delete")
+        .withf(move |id, database| id == &tenant_id.to_string() && database == "tenant_to_delete")
         .times(1)
         .returning(|_, _| Ok(()));
 
@@ -300,8 +298,7 @@ async fn test_rotate_google_oauth_config_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("rotate-google".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_rotate_google".to_string(),
+        DbStrategy::Isolated { database: "tenant_rotate_google".to_string(),
         },
         AuthConfig::new(
             "tenant_old_jwt_secret_that_is_long_enough_12345".to_string(),
@@ -349,8 +346,7 @@ async fn test_rotate_tenant_jwt_signing_key_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("rotate-jwt".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_rotate_jwt".to_string(),
+        DbStrategy::Isolated { database: "tenant_rotate_jwt".to_string(),
         },
         AuthConfig::new(
             old_tenant_jwt.clone(),

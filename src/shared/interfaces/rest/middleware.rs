@@ -2,7 +2,7 @@ use crate::shared::infrastructure::services::rate_limiter::{RateLimitError, Redi
 use crate::shared::interfaces::rest::app_state::AppState;
 use axum::{
     extract::{ConnectInfo, Request, State},
-    http::{Method, StatusCode},
+    http::{HeaderMap, Method, StatusCode},
     middleware::Next,
     response::Response,
 };
@@ -251,6 +251,35 @@ async fn is_ip_banned(client: &redis::Client, key: &str) -> bool {
     }
 
     false
+}
+
+pub async fn require_admin_panel_origin(
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    // Strict lock to admin panel origin for privileged admin endpoints.
+    const ADMIN_PANEL_ORIGIN: &str = "http://localhost:5173";
+    let origin = headers.get("Origin").and_then(|value| value.to_str().ok());
+    let proxy_origin = headers
+        .get("x-admin-panel-origin")
+        .and_then(|value| value.to_str().ok());
+
+    let is_allowed =
+        origin.is_some_and(|value| value == ADMIN_PANEL_ORIGIN)
+            || proxy_origin.is_some_and(|value| value == ADMIN_PANEL_ORIGIN);
+
+    if !is_allowed {
+        tracing::warn!(
+            "Rejected privileged request with invalid origin. path={} origin={:?} proxy_origin={:?}",
+            request.uri().path(),
+            headers.get("Origin"),
+            headers.get("x-admin-panel-origin")
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    Ok(next.run(request).await)
 }
 
 async fn register_global_excess_and_maybe_ban(

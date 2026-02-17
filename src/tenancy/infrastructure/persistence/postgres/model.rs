@@ -12,7 +12,7 @@ pub struct Model {
     #[sea_orm(unique)]
     pub name: String,
     #[sea_orm(unique)]
-    pub schema_name: String,
+    pub database_name: String,
     pub db_strategy: Value,
     pub auth_config: Value,
     pub created_at: DateTime<Utc>,

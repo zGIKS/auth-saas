@@ -20,7 +20,7 @@ impl TenantResource {
         Self {
             id: tenant.id.value(),
             name: tenant.name.value().to_string(),
-            db_strategy_type: DbStrategyTypeResource::Shared,
+            db_strategy_type: DbStrategyTypeResource::Isolated,
             auth_config: tenant.auth_config,
             active: tenant.active,
             anon_key,

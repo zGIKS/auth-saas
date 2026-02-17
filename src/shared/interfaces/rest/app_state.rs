@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use redis::Client;
 use sea_orm::{Database, DatabaseConnection, DbErr};
 use tokio::sync::RwLock;
+use url::Url;
 
 use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
 
@@ -26,39 +27,36 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub async fn tenant_db_for_schema(
+    pub async fn tenant_db_for_database(
         &self,
-        schema_name: &str,
+        database_name: &str,
     ) -> Result<DatabaseConnection, DbErr> {
         {
             let cache = self.tenant_db_cache.read().await;
-            if let Some(connection) = cache.get(schema_name) {
+            if let Some(connection) = cache.get(database_name) {
                 return Ok(connection.clone());
             }
         }
 
-        let connection_string = with_search_path(&self.base_database_url, schema_name);
+        let connection_string = with_database_name(&self.base_database_url, database_name)?;
         let new_connection = Database::connect(&connection_string).await?;
 
         let mut cache = self.tenant_db_cache.write().await;
-        if let Some(connection) = cache.get(schema_name) {
+        if let Some(connection) = cache.get(database_name) {
             return Ok(connection.clone());
         }
 
-        cache.insert(schema_name.to_string(), new_connection.clone());
+        cache.insert(database_name.to_string(), new_connection.clone());
         Ok(new_connection)
     }
 }
 
-fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-    let search_path = format!("-csearch_path={},public", schema_name);
-    let option_value = urlencoding::encode(&search_path);
-    let separator = if base_connection_string.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    format!("{base_connection_string}{separator}options={option_value}")
+fn with_database_name(base_connection_string: &str, database_name: &str) -> Result<String, DbErr> {
+    let mut parsed = Url::parse(base_connection_string)
+        .map_err(|e| DbErr::Custom(format!("Invalid DATABASE_URL: {}", e)))?;
+
+    parsed.set_path(&format!("/{}", database_name));
+    Ok(parsed.to_string())
 }
 
 impl axum::extract::FromRef<AppState> for DatabaseConnection {

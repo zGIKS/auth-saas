@@ -71,11 +71,11 @@ where
         }
 
         let tenant_id = TenantId::random();
-        let schema_name = format!("tenant_{}", tenant_id.value().to_string().replace("-", ""));
+        let database_name = format!("tenant_{}", tenant_id.value().to_string().replace("-", ""));
 
         let db_strategy =
-            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
-                schema: schema_name.clone(),
+            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Isolated {
+                database: database_name.clone(),
             };
 
         let jwt_secret = generate_tenant_jwt_signing_secret();
@@ -86,7 +86,7 @@ where
 
         // 1. Provision Infrastructure
         self.provisioning_facade
-            .provision_tenant(tenant.id.value().to_string(), schema_name)
+            .provision_tenant(tenant.id.value().to_string(), database_name)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
@@ -110,14 +110,14 @@ where
             .ok_or(TenantError::NotFound)?;
 
         // 2. Deprovision Infrastructure
-        let schema_name = match &tenant.db_strategy {
-            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Shared {
-                schema,
-            } => schema.clone(),
+        let database_name = match &tenant.db_strategy {
+            crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy::Isolated {
+                database,
+            } => database.clone(),
         };
 
         self.provisioning_facade
-            .deprovision_tenant(tenant.id.value().to_string(), schema_name)
+            .deprovision_tenant(tenant.id.value().to_string(), database_name)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 

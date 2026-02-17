@@ -15,9 +15,9 @@ mock! {
 
     #[async_trait]
     impl SchemaProvisioner for SchemaProvisioner {
-        async fn create_schema(&self, schema_name: &str) -> Result<(), DomainError>;
-        async fn run_migrations(&self, schema_name: &str) -> Result<(), DomainError>;
-        async fn drop_schema(&self, schema_name: &str) -> Result<(), DomainError>;
+        async fn create_database(&self, database_name: &str) -> Result<(), DomainError>;
+        async fn run_migrations(&self, database_name: &str) -> Result<(), DomainError>;
+        async fn drop_database(&self, database_name: &str) -> Result<(), DomainError>;
     }
 }
 
@@ -26,7 +26,7 @@ async fn test_provision_tenant_resources_success() {
     let mut mock_provisioner = MockSchemaProvisioner::new();
 
     mock_provisioner
-        .expect_create_schema()
+        .expect_create_database()
         .withf(|name| name == "tenant_acme")
         .times(1)
         .returning(|_| Ok(()));
@@ -51,7 +51,7 @@ async fn test_deprovision_tenant_resources_success() {
     let mut mock_provisioner = MockSchemaProvisioner::new();
 
     mock_provisioner
-        .expect_drop_schema()
+        .expect_drop_database()
         .withf(|name| name == "tenant_acme")
         .times(1)
         .returning(|_| Ok(()));

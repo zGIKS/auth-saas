@@ -317,9 +317,12 @@ async fn resolve_tenant_db(
     db_strategy: &DbStrategy,
 ) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Shared { schema } => state.tenant_db_for_schema(schema).await.map_err(|e| {
-            tracing::error!("Failed to connect to tenant database: {}", e);
-            ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-        }),
+        DbStrategy::Isolated { database } => state
+            .tenant_db_for_database(database)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to connect to tenant database: {}", e);
+                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+            }),
     }
 }

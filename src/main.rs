@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use dotenvy::dotenv;
-use sea_orm::{ConnectionTrait, Database, Schema};
+use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Schema, Statement};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -13,7 +13,9 @@ use utoipa_swagger_ui::SwaggerUi;
 use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use auth_service::shared::infrastructure::persistence::redis as redis_infra;
 use auth_service::shared::interfaces::rest::configuration::web_configuration::WebConfiguration;
-use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
+use auth_service::shared::interfaces::rest::middleware::{
+    rate_limit_middleware, require_admin_panel_origin,
+};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::RwLock;
 
@@ -100,6 +102,35 @@ async fn main() {
         Err(e) => tracing::error!("Error creating 'tenants' table: {}", e),
     }
 
+    let rename_tenant_column_sql = r#"
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'tenants' AND column_name = 'schema_name'
+            ) AND NOT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'tenants' AND column_name = 'database_name'
+            ) THEN
+                ALTER TABLE tenants RENAME COLUMN schema_name TO database_name;
+            END IF;
+        END
+        $$;
+    "#;
+
+    match db
+        .execute(Statement::from_string(
+            DatabaseBackend::Postgres,
+            rename_tenant_column_sql,
+        ))
+        .await
+    {
+        Ok(_) => tracing::info!("Tenant metadata column normalized to 'database_name'"),
+        Err(e) => tracing::error!("Error normalizing tenants metadata column: {}", e),
+    }
+
     let mut create_admin_accounts_table_op = schema.create_table_from_entity(
         iam::admin_identity::infrastructure::persistence::postgres::model::Entity,
     );
@@ -143,8 +174,16 @@ async fn main() {
 
     let app = Router::new()
         .merge(tenant_aware_routes)
-        .route("/api/v1/admin/login", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin))
-        .route("/api/v1/admin/logout", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::logout_admin))
+        .route(
+            "/api/v1/admin/login",
+            post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin)),
+        )
+        .route(
+            "/api/v1/admin/logout",
+            post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::logout_admin)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin)),
+        )
         // Public / Tenant-Agnostic Routes
         .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         // Tenancy Routes
@@ -152,6 +191,7 @@ async fn main() {
             "/api/v1/tenants",
             post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant)
                 .get(tenancy::interfaces::rest::controllers::tenant_controller::list_tenants)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(
                 axum::middleware::from_fn_with_state(
                     state.clone(),
@@ -163,6 +203,7 @@ async fn main() {
             "/api/v1/tenants/:id",
             get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant)
                 .delete(tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -171,6 +212,7 @@ async fn main() {
         .route(
             "/api/v1/tenants/:id/oauth/google/rotate",
             post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_google_oauth_config)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -179,6 +221,7 @@ async fn main() {
         .route(
             "/api/v1/tenants/:id/jwt-signing-key/rotate",
             post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_tenant_jwt_signing_key)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -187,6 +230,7 @@ async fn main() {
         .route(
             "/api/v1/tenants/:id/anon-key/reissue",
             post(tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
