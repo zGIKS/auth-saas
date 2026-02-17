@@ -9,7 +9,7 @@ services:
     env_file:
       - .env
     ports:
-      - "127.0.0.1:${PORT:-8081}:8081"
+      - "${APP_BIND_IP:-0.0.0.0}:${PORT:-8081}:8081"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

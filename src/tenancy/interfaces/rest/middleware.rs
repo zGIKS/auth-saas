@@ -92,6 +92,23 @@ pub async fn tenant_resolver(
         return Err(StatusCode::FORBIDDEN); // Tenant is suspended
     }
 
+    // Browser requests must come from the tenant's configured frontend URL.
+    // Non-browser requests (without Origin) are still allowed.
+    if !is_allowed_tenant_origin(&headers, &tenant, &state.frontend_url) {
+        let configured = tenant
+            .auth_config
+            .frontend_url
+            .as_deref()
+            .unwrap_or(state.frontend_url.as_str());
+        tracing::warn!(
+            "Rejected tenant request with invalid origin. tenant_id={} origin={:?} allowed_origin={}",
+            tenant.id.value(),
+            headers.get("Origin"),
+            configured
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+
     // 4. Validate Version
     if tenant.anon_key_version != version {
         tracing::warn!(
@@ -108,4 +125,23 @@ pub async fn tenant_resolver(
 
     // 6. Continue
     Ok(next.run(request).await)
+}
+
+fn is_allowed_tenant_origin(headers: &HeaderMap, tenant: &Tenant, fallback_frontend_url: &str) -> bool {
+    let request_origin = headers.get("Origin").and_then(|value| value.to_str().ok());
+    let Some(request_origin) = request_origin else {
+        return true;
+    };
+
+    let allowed_origin = tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .unwrap_or(fallback_frontend_url);
+
+    normalize_origin(request_origin) == normalize_origin(allowed_origin)
+}
+
+fn normalize_origin(value: &str) -> String {
+    value.trim().trim_end_matches('/').to_ascii_lowercase()
 }
