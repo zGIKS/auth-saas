@@ -75,7 +75,10 @@ async fn main() {
         .parse()
         .expect("LOCKOUT_DURATION_SECONDS must be a number");
 
-    let frontend_url = std::env::var("FRONTEND_URL").expect("FRONTEND_URL must be set");
+    let frontend_url = std::env::var("FRONTEND_URL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     let google_redirect_uri =
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");

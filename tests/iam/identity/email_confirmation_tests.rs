@@ -53,6 +53,7 @@ async fn test_confirm_registration_success() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = ConfirmRegistrationCommand {
         token: token_str.to_string(),
@@ -92,6 +93,7 @@ async fn test_confirm_registration_invalid_token() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = ConfirmRegistrationCommand {
         token: token_str.to_string(),
@@ -145,6 +147,7 @@ async fn test_confirm_registration_with_query_object() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     // Create query object first (validates token)
     let query = ConfirmEmailQuery::new(token_str.clone());
@@ -220,6 +223,7 @@ async fn test_end_to_end_registration_flow() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     // Execute Step 1: Register
     let email = Email::new("endtoend@gmail.com".to_string()).unwrap();

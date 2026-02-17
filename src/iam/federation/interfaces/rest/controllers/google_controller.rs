@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Json, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
@@ -56,6 +56,7 @@ struct StateClaims {
 pub async fn redirect_to_google(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
+    headers: HeaderMap,
     jar: CookieJar,
 ) -> (CookieJar, impl IntoResponse) {
     // Validate that tenant has OAuth configured
@@ -76,14 +77,7 @@ pub async fn redirect_to_google(
 
     // Set cookie with nonce
     let mut cookie = Cookie::new("oauth_state", nonce.clone());
-    let frontend_url = tenant_ctx
-        .tenant
-        .auth_config
-        .frontend_url
-        .as_deref()
-        .unwrap_or(state.frontend_url.as_str());
-    let secure_cookie =
-        state.google_redirect_uri.starts_with("https://") || frontend_url.starts_with("https://");
+    let secure_cookie = is_https_request(&headers);
     cookie.set_path("/");
     cookie.set_secure(secure_cookie);
     cookie.set_http_only(true);
@@ -137,18 +131,27 @@ pub async fn google_callback(
     Query(query): Query<GoogleCallbackQuery>,
     jar: CookieJar,
 ) -> (CookieJar, impl IntoResponse) {
-    let fallback_frontend_url = state.frontend_url.as_str();
+    let fallback_frontend_url = state.frontend_url.as_deref();
 
     // 1. Verify State (CSRF & Context)
     let state_token = match query.state {
         Some(s) => s,
         None => {
-            let redirect_url = format!(
-                "{}/login?error=csrf_error&message={}",
-                fallback_frontend_url,
-                urlencoding::encode("Missing state parameter")
+            if let Some(frontend_url) = fallback_frontend_url {
+                let redirect_url = format!(
+                    "{}/login?error=csrf_error&message={}",
+                    frontend_url,
+                    urlencoding::encode("Missing state parameter")
+                );
+                return (jar, Redirect::to(&redirect_url).into_response());
+            }
+
+            return (
+                jar,
+                ErrorResponse::new("Missing state parameter")
+                    .with_code(StatusCode::BAD_REQUEST.as_u16())
+                    .into_response(),
             );
-            return (jar, Redirect::to(&redirect_url).into_response());
         }
     };
 
@@ -159,12 +162,77 @@ pub async fn google_callback(
     ) {
         Ok(data) => data,
         Err(e) => {
-            let redirect_url = format!(
-                "{}/login?error=csrf_error&message={}",
-                fallback_frontend_url,
-                urlencoding::encode(&format!("Invalid or expired state: {}", e))
+            let message = format!("Invalid or expired state: {}", e);
+            if let Some(frontend_url) = fallback_frontend_url {
+                let redirect_url = format!(
+                    "{}/login?error=csrf_error&message={}",
+                    frontend_url,
+                    urlencoding::encode(&message)
+                );
+                return (jar, Redirect::to(&redirect_url).into_response());
+            }
+
+            return (
+                jar,
+                ErrorResponse::new(message)
+                    .with_code(StatusCode::BAD_REQUEST.as_u16())
+                    .into_response(),
             );
-            return (jar, Redirect::to(&redirect_url).into_response());
+        }
+    };
+
+    // 2. Load Tenant
+    let tenant_id = TenantId::new(token_data.claims.tenant_id);
+    let tenant_repo = PostgresTenantRepository::new(state.db.clone());
+
+    let tenant = match tenant_repo.find_by_id(&tenant_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            if let Some(frontend_url) = fallback_frontend_url {
+                let redirect_url = format!(
+                    "{}/login?error=tenant_not_found&message={}",
+                    frontend_url,
+                    urlencoding::encode("Tenant not found")
+                );
+                return (jar, Redirect::to(&redirect_url).into_response());
+            }
+
+            return (
+                jar,
+                ErrorResponse::new("Tenant not found")
+                    .with_code(StatusCode::NOT_FOUND.as_u16())
+                    .into_response(),
+            );
+        }
+        Err(e) => {
+            tracing::error!("Failed to load tenant: {}", e);
+            if let Some(frontend_url) = fallback_frontend_url {
+                let redirect_url = format!(
+                    "{}/login?error=internal_error&message={}",
+                    frontend_url,
+                    urlencoding::encode("Internal error loading tenant")
+                );
+                return (jar, Redirect::to(&redirect_url).into_response());
+            }
+
+            return (jar, ErrorResponse::internal_error().into_response());
+        }
+    };
+
+    let frontend_url = match tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .or(fallback_frontend_url)
+    {
+        Some(url) if !url.trim().is_empty() => url,
+        _ => {
+            return (
+                jar,
+                ErrorResponse::new("Tenant frontend_url is not configured")
+                    .with_code(StatusCode::BAD_REQUEST.as_u16())
+                    .into_response(),
+            );
         }
     };
 
@@ -173,7 +241,7 @@ pub async fn google_callback(
     if cookie_nonce.is_none() || cookie_nonce.unwrap() != token_data.claims.nonce {
         let redirect_url = format!(
             "{}/login?error=csrf_error&message={}",
-            fallback_frontend_url,
+            frontend_url,
             urlencoding::encode("State mismatch (CSRF detected)")
         );
         // Clear cookie just in case
@@ -183,37 +251,6 @@ pub async fn google_callback(
 
     // Clear cookie as it's used
     let jar = jar.remove(Cookie::from("oauth_state"));
-
-    // 2. Load Tenant
-    let tenant_id = TenantId::new(token_data.claims.tenant_id);
-    let tenant_repo = PostgresTenantRepository::new(state.db.clone());
-
-    let tenant = match tenant_repo.find_by_id(&tenant_id).await {
-        Ok(Some(t)) => t,
-        Ok(None) => {
-            let redirect_url = format!(
-                "{}/login?error=tenant_not_found&message={}",
-                fallback_frontend_url,
-                urlencoding::encode("Tenant not found")
-            );
-            return (jar, Redirect::to(&redirect_url).into_response());
-        }
-        Err(e) => {
-            tracing::error!("Failed to load tenant: {}", e);
-            let redirect_url = format!(
-                "{}/login?error=internal_error&message={}",
-                fallback_frontend_url,
-                urlencoding::encode("Internal error loading tenant")
-            );
-            return (jar, Redirect::to(&redirect_url).into_response());
-        }
-    };
-
-    let frontend_url = tenant
-        .auth_config
-        .frontend_url
-        .as_deref()
-        .unwrap_or(fallback_frontend_url);
 
     // 3. Validate Tenant Configuration
     let google_client_id = match &tenant.auth_config.google_client_id {
@@ -333,6 +370,22 @@ pub async fn google_callback(
             (jar, Redirect::to(&redirect_url).into_response())
         }
     }
+}
+
+fn is_https_request(headers: &HeaderMap) -> bool {
+    let x_forwarded_proto_https = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|proto| proto.eq_ignore_ascii_case("https"));
+
+    if x_forwarded_proto_https {
+        return true;
+    }
+
+    headers
+        .get("forwarded")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|forwarded| forwarded.to_ascii_lowercase().contains("proto=https"))
 }
 
 #[utoipa::path(

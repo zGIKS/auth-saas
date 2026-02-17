@@ -115,7 +115,10 @@ pub async fn register_identity(
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
-    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
+    let frontend_url = match tenant_frontend_url(&state, &tenant_ctx) {
+        Ok(url) => url,
+        Err(err) => return err.into_response(),
+    };
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -170,7 +173,10 @@ pub async fn confirm_registration(
     Extension(tenant_ctx): Extension<TenantContext>,
     Query(params): Query<ConfirmEmailQueryParams>,
 ) -> impl IntoResponse {
-    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
+    let frontend_url = match tenant_frontend_url(&state, &tenant_ctx) {
+        Ok(url) => url,
+        Err(err) => return err.into_response(),
+    };
 
     // Validate query params
     if let Err(e) = params.validate() {
@@ -340,7 +346,10 @@ pub async fn request_password_reset(
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
-    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
+    let frontend_url = match tenant_frontend_url(&state, &tenant_ctx) {
+        Ok(url) => url,
+        Err(err) => return err.into_response(),
+    };
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -432,7 +441,10 @@ pub async fn reset_password(
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
-    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
+    let frontend_url = match tenant_frontend_url(&state, &tenant_ctx) {
+        Ok(url) => url,
+        Err(err) => return err.into_response(),
+    };
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -479,11 +491,12 @@ async fn resolve_tenant_db(
     }
 }
 
-fn tenant_frontend_url(state: &AppState, tenant_ctx: &TenantContext) -> String {
+fn tenant_frontend_url(_state: &AppState, tenant_ctx: &TenantContext) -> Result<String, ErrorResponse> {
     tenant_ctx
         .tenant
         .auth_config
         .frontend_url
         .clone()
-        .unwrap_or_else(|| state.frontend_url.clone())
+        .filter(|url| !url.trim().is_empty())
+        .ok_or_else(|| ErrorResponse::new("Tenant frontend_url is not configured").with_code(400))
 }

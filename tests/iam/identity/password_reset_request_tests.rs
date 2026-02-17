@@ -62,6 +62,7 @@ async fn test_request_password_reset_success() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -100,6 +101,7 @@ async fn test_request_password_reset_non_existent_email_returns_ok() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -160,6 +162,7 @@ async fn test_request_password_reset_generates_secure_token() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -218,6 +221,7 @@ async fn test_request_password_reset_uses_correct_ttl() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -280,6 +284,7 @@ async fn test_request_password_reset_email_contains_frontend_url() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
