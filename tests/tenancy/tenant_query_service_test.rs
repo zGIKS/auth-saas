@@ -52,7 +52,8 @@ async fn test_reissue_tenant_anon_key_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("reissue-anon".to_string()).unwrap(),
-        DbStrategy::Isolated { database: "tenant_reissue_anon".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_reissue_anon".to_string(),
         },
         AuthConfig::new(
             "tenant_jwt_secret_that_is_long_enough_123456".to_string(),
@@ -110,7 +111,8 @@ async fn test_reissue_tenant_anon_key_inactive_tenant_fails() {
     let mut tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("inactive-tenant".to_string()).unwrap(),
-        DbStrategy::Isolated { database: "tenant_inactive".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_inactive".to_string(),
         },
         AuthConfig::new(
             "tenant_jwt_secret_that_is_long_enough_123456".to_string(),

@@ -44,8 +44,9 @@ impl PostgresSchemaProvisioner {
         base_connection_string: &str,
         database_name: &str,
     ) -> Result<String, DomainError> {
-        let mut parsed = Url::parse(base_connection_string)
-            .map_err(|e| DomainError::InfrastructureError(format!("Invalid DATABASE_URL: {}", e)))?;
+        let mut parsed = Url::parse(base_connection_string).map_err(|e| {
+            DomainError::InfrastructureError(format!("Invalid DATABASE_URL: {}", e))
+        })?;
         parsed.set_path(&format!("/{}", database_name));
         Ok(parsed.to_string())
     }
@@ -63,10 +64,7 @@ impl SchemaProvisioner for PostgresSchemaProvisioner {
                 .await
                 .map_err(DomainError::InfrastructureError)?;
 
-        let create_database_sql = format!(
-            "CREATE DATABASE {}",
-            Self::quote_ident(database_name)
-        );
+        let create_database_sql = format!("CREATE DATABASE {}", Self::quote_ident(database_name));
         db.execute(Statement::from_string(
             DatabaseBackend::Postgres,
             create_database_sql,
@@ -135,9 +133,7 @@ impl SchemaProvisioner for PostgresSchemaProvisioner {
             drop_database_sql,
         ))
         .await
-        .map_err(|e| {
-            DomainError::InfrastructureError(format!("Failed to drop database: {}", e))
-        })?;
+        .map_err(|e| DomainError::InfrastructureError(format!("Failed to drop database: {}", e)))?;
 
         Ok(())
     }

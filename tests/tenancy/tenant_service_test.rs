@@ -104,7 +104,8 @@ async fn test_create_tenant_already_exists() {
         Ok(Some(Tenant::new(
             TenantId::random(),
             name.clone(),
-            DbStrategy::Isolated { database: "tenant_existing_project".to_string(),
+            DbStrategy::Isolated {
+                database: "tenant_existing_project".to_string(),
             },
             AuthConfig::new(
                 "dummy_secret_also_needs_to_be_long_123456789".to_string(),
@@ -221,7 +222,8 @@ async fn test_delete_tenant_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("to-delete".to_string()).unwrap(),
-        DbStrategy::Isolated { database: "tenant_to_delete".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_to_delete".to_string(),
         },
         AuthConfig::new(
             "secret_key_that_is_long_enough_32_chars".to_string(),
@@ -299,7 +301,8 @@ async fn test_rotate_google_oauth_config_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("rotate-google".to_string()).unwrap(),
-        DbStrategy::Isolated { database: "tenant_rotate_google".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_rotate_google".to_string(),
         },
         AuthConfig::new(
             "tenant_old_jwt_secret_that_is_long_enough_12345".to_string(),
@@ -347,7 +350,8 @@ async fn test_rotate_tenant_jwt_signing_key_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("rotate-jwt".to_string()).unwrap(),
-        DbStrategy::Isolated { database: "tenant_rotate_jwt".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_rotate_jwt".to_string(),
         },
         AuthConfig::new(
             old_tenant_jwt.clone(),

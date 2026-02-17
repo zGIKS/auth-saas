@@ -35,7 +35,9 @@ impl<S: SchemaProvisioner> ProvisioningCommandService for ProvisioningCommandSer
             .await?;
 
         // 2. Run Migrations (Create Tables)
-        self.schema_provisioner.run_migrations(database_name).await?;
+        self.schema_provisioner
+            .run_migrations(database_name)
+            .await?;
 
         // 3. (Optional) Emit TenantResourcesProvisioned event
 

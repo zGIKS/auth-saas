@@ -82,8 +82,8 @@ pub async fn redirect_to_google(
         .frontend_url
         .as_deref()
         .unwrap_or(state.frontend_url.as_str());
-    let secure_cookie = state.google_redirect_uri.starts_with("https://")
-        || frontend_url.starts_with("https://");
+    let secure_cookie =
+        state.google_redirect_uri.starts_with("https://") || frontend_url.starts_with("https://");
     cookie.set_path("/");
     cookie.set_secure(secure_cookie);
     cookie.set_http_only(true);
@@ -386,12 +386,11 @@ async fn resolve_tenant_db(
     db_strategy: &DbStrategy,
 ) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Isolated { database } => state
-            .tenant_db_for_database(database)
-            .await
-            .map_err(|e| {
+        DbStrategy::Isolated { database } => {
+            state.tenant_db_for_database(database).await.map_err(|e| {
                 tracing::error!("Failed to connect to tenant database: {}", e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            }),
+            })
+        }
     }
 }

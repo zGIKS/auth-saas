@@ -464,10 +464,7 @@ pub async fn update_tenant_frontend_url(
             StatusCode::OK,
             Json(UpdateTenantFrontendUrlResponse {
                 message: "Tenant frontend URL updated successfully".to_string(),
-                frontend_url: updated_tenant
-                    .auth_config
-                    .frontend_url
-                    .unwrap_or_default(),
+                frontend_url: updated_tenant.auth_config.frontend_url.unwrap_or_default(),
             }),
         )
             .into_response(),
