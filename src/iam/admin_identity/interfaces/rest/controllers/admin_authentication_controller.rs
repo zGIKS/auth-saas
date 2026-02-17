@@ -1,7 +1,7 @@
 use axum::{
     Json,
     extract::{ConnectInfo, Json as JsonExtractor, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use hex;
@@ -48,7 +48,9 @@ use crate::{
         infrastructure::services::account_lockout::{
             AccountLockoutService, AccountLockoutVerifier, LockoutError,
         },
-        interfaces::rest::{app_state::AppState, error_response::ErrorResponse},
+        interfaces::rest::{
+            app_state::AppState, error_response::ErrorResponse, middleware::extract_client_ip,
+        },
     },
 };
 
@@ -70,6 +72,7 @@ use crate::{
 )]
 pub async fn login_admin(
     State(state): State<AppState>,
+    headers: HeaderMap,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     JsonExtractor(resource): JsonExtractor<AdminLoginRequest>,
 ) -> impl IntoResponse {
@@ -81,7 +84,7 @@ pub async fn login_admin(
 
     let username_raw = resource.username.clone();
     let identity_key = hash_admin_identity(&username_raw);
-    let ip_address = Some(addr.ip().to_string());
+    let ip_address = Some(extract_client_ip(&headers, Some(addr.ip())));
 
     let lockout_service =
         AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());

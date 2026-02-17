@@ -27,6 +27,7 @@ use crate::tenancy::domain::{
         create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
         rotate_google_oauth_config_command::RotateGoogleOauthConfigCommand,
         rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
+        update_tenant_frontend_url_command::UpdateTenantFrontendUrlCommand,
     },
     model::queries::{
         get_tenant_query::GetTenantQuery, list_tenants_query::ListTenantsQuery,
@@ -45,6 +46,9 @@ use crate::tenancy::interfaces::rest::resources::{
     },
     rotate_tenant_jwt_signing_key_resource::RotateTenantJwtSigningKeyResponse,
     tenant_resource::TenantResource,
+    update_tenant_frontend_url_resource::{
+        UpdateTenantFrontendUrlRequest, UpdateTenantFrontendUrlResponse,
+    },
 };
 
 #[derive(Debug, Serialize)]
@@ -147,7 +151,7 @@ pub async fn create_tenant(
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
 
-    let command = match CreateTenantCommand::new(payload.name) {
+    let command = match CreateTenantCommand::new(payload.name, payload.frontend_url) {
         Ok(cmd) => cmd,
         Err(e) => {
             return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
@@ -405,6 +409,77 @@ pub async fn rotate_tenant_jwt_signing_key(
                 .into_response(),
             _ => {
                 tracing::error!("Rotate tenant JWT signing key error: {}", e);
+                ErrorResponse::internal_error().into_response()
+            }
+        },
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/tenants/{id}/frontend-url",
+    tag = "tenancy",
+    security(("admin_bearer" = [])),
+    params(
+        ("id" = Uuid, Path, description = "Tenant ID")
+    ),
+    request_body = UpdateTenantFrontendUrlRequest,
+    responses(
+        (status = 200, description = "Tenant frontend URL updated successfully", body = UpdateTenantFrontendUrlResponse),
+        (status = 400, description = "Bad Request"),
+        (status = 401, description = "Admin authentication required"),
+        (status = 404, description = "Tenant not found"),
+        (status = 500, description = "Internal Server Error")
+    )
+)]
+pub async fn update_tenant_frontend_url(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(payload): Json<UpdateTenantFrontendUrlRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = payload.validate() {
+        return ErrorResponse::new(e.to_string())
+            .with_code(StatusCode::BAD_REQUEST.as_u16())
+            .into_response();
+    }
+
+    let command = match UpdateTenantFrontendUrlCommand::new(id, payload.frontend_url) {
+        Ok(c) => c,
+        Err(e) => {
+            return ErrorResponse::new(e.to_string())
+                .with_code(StatusCode::BAD_REQUEST.as_u16())
+                .into_response();
+        }
+    };
+
+    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
+    let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
+    let repository = PostgresTenantRepository::new(state.db.clone());
+    let service =
+        TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
+
+    match service.update_tenant_frontend_url(command).await {
+        Ok(updated_tenant) => (
+            StatusCode::OK,
+            Json(UpdateTenantFrontendUrlResponse {
+                message: "Tenant frontend URL updated successfully".to_string(),
+                frontend_url: updated_tenant
+                    .auth_config
+                    .frontend_url
+                    .unwrap_or_default(),
+            }),
+        )
+            .into_response(),
+        Err(e) => match e {
+            TenantError::NotFound => ErrorResponse::new("Tenant not found")
+                .with_code(StatusCode::NOT_FOUND.as_u16())
+                .into_response(),
+            TenantError::InvalidAuthConfig(msg) => ErrorResponse::new(msg)
+                .with_code(StatusCode::BAD_REQUEST.as_u16())
+                .into_response(),
+            _ => {
+                tracing::error!("Update tenant frontend URL error: {}", e);
                 ErrorResponse::internal_error().into_response()
             }
         },

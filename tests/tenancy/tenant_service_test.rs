@@ -73,8 +73,8 @@ async fn test_create_tenant_success() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
 
-    let command =
-        CreateTenantCommand::new("test-project".to_string()).expect("Command should be valid");
+    let command = CreateTenantCommand::new("test-project".to_string(), None)
+        .expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
@@ -120,8 +120,8 @@ async fn test_create_tenant_already_exists() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
 
-    let command =
-        CreateTenantCommand::new("existing-project".to_string()).expect("Command should be valid");
+    let command = CreateTenantCommand::new("existing-project".to_string(), None)
+        .expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
@@ -137,6 +137,7 @@ async fn test_create_tenant_fails_with_invalid_name() {
     // This logic is mostly in the Command creation, but good to verify
     let result = CreateTenantCommand::new(
         "Invalid Name Here".to_string(), // Spaces not allowed
+        None,
     );
 
     // Should return InvalidName error because of spaces
@@ -172,7 +173,7 @@ async fn test_security_generated_jwt_structure() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret.clone());
 
-    let command = CreateTenantCommand::new("secure-app".to_string()).unwrap();
+    let command = CreateTenantCommand::new("secure-app".to_string(), None).unwrap();
 
     let (tenant, key) = service.create_tenant(command).await.unwrap();
 

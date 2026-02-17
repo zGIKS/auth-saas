@@ -2,7 +2,7 @@ use auth_service::shared::interfaces::rest::app_state::AppState;
 use auth_service::{ApiDoc, iam, tenancy};
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use dotenvy::dotenv;
 use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Schema, Statement};
@@ -230,6 +230,15 @@ async fn main() {
         .route(
             "/api/v1/tenants/:id/anon-key/reissue",
             post(tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                )),
+        )
+        .route(
+            "/api/v1/tenants/:id/frontend-url",
+            put(tenancy::interfaces::rest::controllers::tenant_controller::update_tenant_frontend_url)
                 .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),

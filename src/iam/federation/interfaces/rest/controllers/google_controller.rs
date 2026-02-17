@@ -76,8 +76,14 @@ pub async fn redirect_to_google(
 
     // Set cookie with nonce
     let mut cookie = Cookie::new("oauth_state", nonce.clone());
+    let frontend_url = tenant_ctx
+        .tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .unwrap_or(state.frontend_url.as_str());
     let secure_cookie = state.google_redirect_uri.starts_with("https://")
-        || state.frontend_url.starts_with("https://");
+        || frontend_url.starts_with("https://");
     cookie.set_path("/");
     cookie.set_secure(secure_cookie);
     cookie.set_http_only(true);
@@ -131,7 +137,7 @@ pub async fn google_callback(
     Query(query): Query<GoogleCallbackQuery>,
     jar: CookieJar,
 ) -> (CookieJar, impl IntoResponse) {
-    let frontend_url = state.frontend_url.as_str();
+    let fallback_frontend_url = state.frontend_url.as_str();
 
     // 1. Verify State (CSRF & Context)
     let state_token = match query.state {
@@ -139,7 +145,7 @@ pub async fn google_callback(
         None => {
             let redirect_url = format!(
                 "{}/login?error=csrf_error&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode("Missing state parameter")
             );
             return (jar, Redirect::to(&redirect_url).into_response());
@@ -155,7 +161,7 @@ pub async fn google_callback(
         Err(e) => {
             let redirect_url = format!(
                 "{}/login?error=csrf_error&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode(&format!("Invalid or expired state: {}", e))
             );
             return (jar, Redirect::to(&redirect_url).into_response());
@@ -167,7 +173,7 @@ pub async fn google_callback(
     if cookie_nonce.is_none() || cookie_nonce.unwrap() != token_data.claims.nonce {
         let redirect_url = format!(
             "{}/login?error=csrf_error&message={}",
-            frontend_url,
+            fallback_frontend_url,
             urlencoding::encode("State mismatch (CSRF detected)")
         );
         // Clear cookie just in case
@@ -187,7 +193,7 @@ pub async fn google_callback(
         Ok(None) => {
             let redirect_url = format!(
                 "{}/login?error=tenant_not_found&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode("Tenant not found")
             );
             return (jar, Redirect::to(&redirect_url).into_response());
@@ -196,12 +202,18 @@ pub async fn google_callback(
             tracing::error!("Failed to load tenant: {}", e);
             let redirect_url = format!(
                 "{}/login?error=internal_error&message={}",
-                frontend_url,
+                fallback_frontend_url,
                 urlencoding::encode("Internal error loading tenant")
             );
             return (jar, Redirect::to(&redirect_url).into_response());
         }
     };
+
+    let frontend_url = tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .unwrap_or(fallback_frontend_url);
 
     // 3. Validate Tenant Configuration
     let google_client_id = match &tenant.auth_config.google_client_id {

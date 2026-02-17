@@ -115,6 +115,7 @@ pub async fn register_identity(
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -123,7 +124,8 @@ pub async fn register_identity(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url);
 
     match service.handle(command).await {
         Ok((_identity, _token)) => {
@@ -168,14 +170,14 @@ pub async fn confirm_registration(
     Extension(tenant_ctx): Extension<TenantContext>,
     Query(params): Query<ConfirmEmailQueryParams>,
 ) -> impl IntoResponse {
-    let frontend_url = &state.frontend_url;
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
 
     // Validate query params
     if let Err(e) = params.validate() {
         let error_msg = e.to_string();
         let error_url = format!(
             "{}/email-verification-failed?error=invalid_token&message={}",
-            frontend_url,
+            frontend_url.as_str(),
             urlencoding::encode(&error_msg)
         );
         return Redirect::to(&error_url).into_response();
@@ -188,7 +190,7 @@ pub async fn confirm_registration(
             let error_msg = e.to_string();
             let error_url = format!(
                 "{}/email-verification-failed?error=invalid_token&message={}",
-                frontend_url,
+                frontend_url.as_str(),
                 urlencoding::encode(&error_msg)
             );
             return Redirect::to(&error_url).into_response();
@@ -203,7 +205,7 @@ pub async fn confirm_registration(
         Err(_resp) => {
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
-                frontend_url,
+                frontend_url.as_str(),
                 urlencoding::encode("Configuration error")
             );
             return Redirect::to(&error_url).into_response();
@@ -221,7 +223,7 @@ pub async fn confirm_registration(
             tracing::error!("Failed to initialize email sender: {}", e);
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
-                frontend_url,
+                frontend_url.as_str(),
                 urlencoding::encode("Service temporarily unavailable")
             );
             return Redirect::to(&error_url).into_response();
@@ -249,11 +251,12 @@ pub async fn confirm_registration(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url.clone());
 
     match service.confirm_registration(command).await {
         Ok(_) => {
-            let success_url = format!("{}/email-verified?success=true", frontend_url);
+            let success_url = format!("{}/email-verified?success=true", frontend_url.as_str());
             Redirect::to(&success_url).into_response()
         }
         Err(e) => {
@@ -267,7 +270,7 @@ pub async fn confirm_registration(
             };
             let error_url = format!(
                 "{}/email-verification-failed?error=verification_failed&message={}",
-                frontend_url,
+                frontend_url.as_str(),
                 urlencoding::encode(error_msg)
             );
             Redirect::to(&error_url).into_response()
@@ -337,6 +340,7 @@ pub async fn request_password_reset(
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -345,7 +349,8 @@ pub async fn request_password_reset(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url);
 
     match service.request_password_reset(command).await {
         Ok(_) => {
@@ -427,6 +432,7 @@ pub async fn reset_password(
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -435,7 +441,8 @@ pub async fn reset_password(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url);
 
     match service.reset_password(command).await {
         Ok(_) => {
@@ -471,4 +478,13 @@ async fn resolve_tenant_db(
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
             }),
     }
+}
+
+fn tenant_frontend_url(state: &AppState, tenant_ctx: &TenantContext) -> String {
+    tenant_ctx
+        .tenant
+        .auth_config
+        .frontend_url
+        .clone()
+        .unwrap_or_else(|| state.frontend_url.clone())
 }

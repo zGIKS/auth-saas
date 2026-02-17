@@ -28,7 +28,8 @@ pub mod tenancy;
         tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant,
         tenancy::interfaces::rest::controllers::tenant_controller::rotate_google_oauth_config,
         tenancy::interfaces::rest::controllers::tenant_controller::rotate_tenant_jwt_signing_key,
-        tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key
+        tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key,
+        tenancy::interfaces::rest::controllers::tenant_controller::update_tenant_frontend_url
     ),
     components(
         schemas(
@@ -57,6 +58,8 @@ pub mod tenancy;
             tenancy::interfaces::rest::resources::rotate_google_oauth_config_resource::RotateGoogleOauthConfigResponse,
             tenancy::interfaces::rest::resources::rotate_tenant_jwt_signing_key_resource::RotateTenantJwtSigningKeyResponse,
             tenancy::interfaces::rest::resources::reissue_tenant_anon_key_resource::ReissueTenantAnonKeyResponse,
+            tenancy::interfaces::rest::resources::update_tenant_frontend_url_resource::UpdateTenantFrontendUrlRequest,
+            tenancy::interfaces::rest::resources::update_tenant_frontend_url_resource::UpdateTenantFrontendUrlResponse,
             shared::interfaces::rest::error_response::ErrorResponse
         )
     ),

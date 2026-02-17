@@ -7,7 +7,7 @@ use axum::{
     response::Response,
 };
 use redis::AsyncCommands;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 pub async fn rate_limit_middleware(
     State(state): State<AppState>,
@@ -27,39 +27,8 @@ pub async fn rate_limit_middleware(
     // If not available, we fall back to "unknown".
     // Note: The user prompt implementation uses `x-forwarded-for` naively.
 
-    let remote_ip = req
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|ci| ci.0.ip().to_string());
-
-    let x_forwarded = req
-        .headers()
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string());
-
-    // Logic: Use remote_ip if valid. Only use x_forwarded if configured or if remote_ip looks like a local proxy (not implemented here per strict request, but commonly done).
-    // The request specifically asks: "ensure the limiter reuses the real IP (remote_addr) and validate x-forwarded-for only when coming from trusted proxies"
-
-    // For now, we will prefer remote_ip. If the app is behind a reverse proxy (like Nginx on localhost), remote_ip will be 127.0.0.1.
-    // In that specific case, we might trust XFF.
-
-    let ip = match remote_ip {
-        Some(ip_str) => {
-            // Check if trusted proxy (e.g. localhost)
-            if ip_str == "127.0.0.1" || ip_str == "::1" {
-                x_forwarded.unwrap_or(ip_str)
-            } else {
-                ip_str
-            }
-        }
-        None => {
-            // Fallback if ConnectInfo is missing.
-            // Do NOT trust X-Forwarded-For blindly as it can be spoofed.
-            // Since we can't verify the source, we treat it as unknown.
-            "unknown".to_string()
-        }
-    };
+    let remote_ip = req.extensions().get::<ConnectInfo<SocketAddr>>().map(|ci| ci.0.ip());
+    let ip = extract_client_ip(req.headers(), remote_ip);
 
     let path = req.uri().path().to_string();
     let method = req.method().clone();
@@ -258,28 +227,92 @@ pub async fn require_admin_panel_origin(
     request: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Strict lock to admin panel origin for privileged admin endpoints.
-    const ADMIN_PANEL_ORIGIN: &str = "http://localhost:5173";
+    // Strict lock to admin panel origins for privileged admin endpoints.
+    // Expected env format:
+    // ADMIN_PANEL_ALLOWED_ORIGINS=http://localhost:5173,https://admin.tailnet-foo.ts.net
+    let allowed_origins = load_allowed_admin_origins();
     let origin = headers.get("Origin").and_then(|value| value.to_str().ok());
-    let proxy_origin = headers
-        .get("x-admin-panel-origin")
-        .and_then(|value| value.to_str().ok());
 
-    let is_allowed =
-        origin.is_some_and(|value| value == ADMIN_PANEL_ORIGIN)
-            || proxy_origin.is_some_and(|value| value == ADMIN_PANEL_ORIGIN);
+    let is_allowed = origin.is_some_and(|value| {
+        let normalized = normalize_origin(value);
+        allowed_origins.iter().any(|allowed| allowed == &normalized)
+    });
 
     if !is_allowed {
         tracing::warn!(
-            "Rejected privileged request with invalid origin. path={} origin={:?} proxy_origin={:?}",
+            "Rejected privileged request with invalid origin. path={} origin={:?} allowed_origins={:?}",
             request.uri().path(),
             headers.get("Origin"),
-            headers.get("x-admin-panel-origin")
+            allowed_origins
         );
         return Err(StatusCode::FORBIDDEN);
     }
 
     Ok(next.run(request).await)
+}
+
+fn normalize_origin(origin: &str) -> String {
+    origin.trim().trim_end_matches('/').to_ascii_lowercase()
+}
+
+pub fn extract_client_ip(headers: &HeaderMap, remote_ip: Option<IpAddr>) -> String {
+    let trusted = load_trusted_proxy_ips();
+
+    match remote_ip {
+        Some(ip) if trusted.contains(&ip) => {
+            let cf_ip = parse_single_ip_header(headers, "cf-connecting-ip");
+            if let Some(v) = cf_ip {
+                return v.to_string();
+            }
+
+            let xff_ip = parse_x_forwarded_for(headers);
+            if let Some(v) = xff_ip {
+                return v.to_string();
+            }
+
+            ip.to_string()
+        }
+        Some(ip) => ip.to_string(),
+        None => "unknown".to_string(),
+    }
+}
+
+fn load_allowed_admin_origins() -> Vec<String> {
+    let raw = std::env::var("ADMIN_PANEL_ALLOWED_ORIGINS")
+        .or_else(|_| std::env::var("ADMIN_PANEL_ORIGIN"))
+        .unwrap_or_default();
+
+    raw.split(',')
+        .map(normalize_origin)
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
+fn load_trusted_proxy_ips() -> Vec<IpAddr> {
+    let raw = std::env::var("TRUSTED_PROXY_IPS")
+        .unwrap_or_else(|_| "127.0.0.1,::1".to_string());
+
+    raw.split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .filter_map(|v| v.parse::<IpAddr>().ok())
+        .collect()
+}
+
+fn parse_single_ip_header(headers: &HeaderMap, header_name: &str) -> Option<IpAddr> {
+    headers
+        .get(header_name)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|raw| raw.trim().parse::<IpAddr>().ok())
+}
+
+fn parse_x_forwarded_for(headers: &HeaderMap) -> Option<IpAddr> {
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|raw| raw.split(',').next())
+        .map(str::trim)
+        .and_then(|ip| ip.parse::<IpAddr>().ok())
 }
 
 async fn register_global_excess_and_maybe_ban(

@@ -4,6 +4,7 @@ use crate::tenancy::domain::model::{
         create_tenant_command::CreateTenantCommand, delete_tenant_command::DeleteTenantCommand,
         rotate_google_oauth_config_command::RotateGoogleOauthConfigCommand,
         rotate_tenant_jwt_signing_key_command::RotateTenantJwtSigningKeyCommand,
+        update_tenant_frontend_url_command::UpdateTenantFrontendUrlCommand,
     },
     tenant::Tenant,
 };
@@ -23,5 +24,9 @@ pub trait TenantCommandService: Send + Sync {
     async fn rotate_tenant_jwt_signing_key(
         &self,
         command: RotateTenantJwtSigningKeyCommand,
+    ) -> Result<Tenant, TenantError>;
+    async fn update_tenant_frontend_url(
+        &self,
+        command: UpdateTenantFrontendUrlCommand,
     ) -> Result<Tenant, TenantError>;
 }

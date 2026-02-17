@@ -44,6 +44,7 @@ where
     session_invalidation_service: S,
     pending_ttl: Duration,
     password_reset_ttl: Duration,
+    frontend_url: Option<String>,
 }
 
 impl<R, P, PR, N, S> IdentityCommandServiceImpl<R, P, PR, N, S>
@@ -71,7 +72,13 @@ where
             session_invalidation_service,
             pending_ttl,
             password_reset_ttl,
+            frontend_url: None,
         }
+    }
+
+    pub fn with_frontend_url(mut self, frontend_url: String) -> Self {
+        self.frontend_url = Some(frontend_url);
+        self
     }
 }
 
@@ -132,7 +139,7 @@ where
 
         // Send Verification Email
         // Construct the verification link pointing to the FRONTEND
-        let frontend_url = load_frontend_url()?;
+        let frontend_url = self.resolve_frontend_url()?;
         validate_frontend_url(&frontend_url)?;
         let verification_link = format!("{}/verify?token={}", frontend_url, token.value());
 
@@ -226,7 +233,7 @@ where
         }
 
         // 4. Send Email
-        let frontend_url = load_frontend_url()?;
+        let frontend_url = self.resolve_frontend_url()?;
         validate_frontend_url(&frontend_url)?;
         let reset_link = format!("{}/reset-password?token={}", frontend_url, token.value());
 
@@ -286,6 +293,23 @@ where
             .map_err(|e| DomainError::InternalError(format!("Failed to revoke sessions: {}", e)))?;
 
         Ok(())
+    }
+}
+
+impl<R, P, PR, N, S> IdentityCommandServiceImpl<R, P, PR, N, S>
+where
+    R: IdentityRepository,
+    P: PendingIdentityRepository,
+    PR: PasswordResetTokenRepository,
+    N: NotificationService,
+    S: SessionInvalidationService,
+{
+    fn resolve_frontend_url(&self) -> Result<String, DomainError> {
+        if let Some(value) = &self.frontend_url {
+            return Ok(value.clone());
+        }
+
+        load_frontend_url()
     }
 }
 
