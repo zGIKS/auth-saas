@@ -76,8 +76,10 @@ pub async fn redirect_to_google(
 
     // Set cookie with nonce
     let mut cookie = Cookie::new("oauth_state", nonce.clone());
+    let secure_cookie = state.google_redirect_uri.starts_with("https://")
+        || state.frontend_url.starts_with("https://");
     cookie.set_path("/");
-    cookie.set_secure(true);
+    cookie.set_secure(secure_cookie);
     cookie.set_http_only(true);
     cookie.set_same_site(SameSite::Lax);
     // cookie.set_max_age(...) // defaults to session if not set, or we can set it to 10 mins
