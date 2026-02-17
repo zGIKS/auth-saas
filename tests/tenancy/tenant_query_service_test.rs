@@ -1,5 +1,5 @@
-use auth_service::tenancy::application::query_services::tenant_query_service_impl::TenantQueryServiceImpl;
-use auth_service::tenancy::domain::{
+use asphanyx::tenancy::application::query_services::tenant_query_service_impl::TenantQueryServiceImpl;
+use asphanyx::tenancy::domain::{
     error::TenantError,
     model::{
         queries::reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,

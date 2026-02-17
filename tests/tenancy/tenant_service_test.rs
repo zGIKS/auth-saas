@@ -1,7 +1,7 @@
-use auth_service::provisioning::domain::error::DomainError;
-use auth_service::provisioning::interfaces::acl::provisioning_facade::ProvisioningFacade;
-use auth_service::tenancy::application::command_services::tenant_command_service_impl::TenantCommandServiceImpl;
-use auth_service::tenancy::domain::{
+use asphanyx::provisioning::domain::error::DomainError;
+use asphanyx::provisioning::interfaces::acl::provisioning_facade::ProvisioningFacade;
+use asphanyx::tenancy::application::command_services::tenant_command_service_impl::TenantCommandServiceImpl;
+use asphanyx::tenancy::domain::{
     error::TenantError,
     model::{
         commands::{

@@ -1,7 +1,7 @@
-use auth_service::iam::authentication::domain::services::authentication_command_service::{SessionRepository, TokenService};
-use auth_service::iam::authentication::infrastructure::persistence::redis::redis_session_repository::RedisSessionRepository;
-use auth_service::iam::authentication::infrastructure::services::jwt_token_service::JwtTokenService;
-use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use asphanyx::iam::authentication::domain::services::authentication_command_service::{SessionRepository, TokenService};
+use asphanyx::iam::authentication::infrastructure::persistence::redis::redis_session_repository::RedisSessionRepository;
+use asphanyx::iam::authentication::infrastructure::services::jwt_token_service::JwtTokenService;
+use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use uuid::Uuid;
 use redis::AsyncCommands;
 use jsonwebtoken::{decode, DecodingKey, Validation};

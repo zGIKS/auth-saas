@@ -21,8 +21,8 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
 
 1. Clona el repositorio:
    ```bash
-   git clone <repository-url> auth-service
-   cd auth-service
+   git clone <repository-url> asphanyx
+   cd asphanyx
    ```
 2. Ajusta `.env` con las variables obligatorias (ejemplo mínimo en `.env`).
 3. Compila y ejecuta:

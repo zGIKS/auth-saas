@@ -1,10 +1,10 @@
-use auth_service::messaging::domain::error::MessagingError;
-use auth_service::messaging::domain::model::value_objects::{
+use asphanyx::messaging::domain::error::MessagingError;
+use asphanyx::messaging::domain::model::value_objects::{
     body::Body, email_address::EmailAddress, subject::Subject,
 };
-use auth_service::messaging::domain::services::email_sender_service::EmailSenderService;
-use auth_service::messaging::infrastructure::services::smtp_email_sender::SmtpEmailSender;
-use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use asphanyx::messaging::domain::services::email_sender_service::EmailSenderService;
+use asphanyx::messaging::infrastructure::services::smtp_email_sender::SmtpEmailSender;
+use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use dotenvy::dotenv;
 
 #[tokio::test]
@@ -43,7 +43,7 @@ async fn test_send_email_integration() {
     let to = EmailAddress::new(primary_to_addr.clone()).expect("Invalid SMTP_TO address");
     let subject = Subject::new("Integration Test Email".to_string()).unwrap();
     let body =
-        Body::new("This is a test email from the auth-service integration test.".to_string())
+        Body::new("This is a test email from the asphanyx integration test.".to_string())
             .unwrap();
 
     let result = sender.send(&to, &subject, &body).await;

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use auth_service::provisioning::application::command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl;
-use auth_service::provisioning::domain::services::provisioning_command_service::ProvisioningCommandService;
-use auth_service::provisioning::domain::{
+use asphanyx::provisioning::application::command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl;
+use asphanyx::provisioning::domain::services::provisioning_command_service::ProvisioningCommandService;
+use asphanyx::provisioning::domain::{
     error::DomainError,
     model::commands::deprovision_tenant_resources_command::DeprovisionTenantResourcesCommand,
     model::commands::provision_tenant_resources_command::ProvisionTenantResourcesCommand,

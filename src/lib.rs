@@ -9,6 +9,9 @@ pub mod tenancy;
 
 #[derive(OpenApi)]
 #[openapi(
+    info(
+        description = "auth self hosted platform"
+    ),
     paths(
         iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin,
         iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::logout_admin,

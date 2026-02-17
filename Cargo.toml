@@ -1,8 +1,8 @@
 [package]
-name = "auth-service"
+name = "asphanyx"
 version = "0.1.0"
 edition = "2024"
-default-run = "auth-service"
+default-run = "asphanyx"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros"] }

@@ -1,4 +1,4 @@
-use auth_service::{
+use asphanyx::{
     iam::{
         admin_identity::{
             application::{

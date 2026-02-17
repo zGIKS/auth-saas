@@ -1,5 +1,5 @@
-use auth_service::shared::interfaces::rest::app_state::AppState;
-use auth_service::{ApiDoc, iam, tenancy};
+use asphanyx::shared::interfaces::rest::app_state::AppState;
+use asphanyx::{ApiDoc, iam, tenancy};
 use axum::{
     Router,
     routing::{get, post, put},
@@ -10,10 +10,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
-use auth_service::shared::infrastructure::persistence::redis as redis_infra;
-use auth_service::shared::interfaces::rest::configuration::web_configuration::WebConfiguration;
-use auth_service::shared::interfaces::rest::middleware::{
+use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use asphanyx::shared::infrastructure::persistence::redis as redis_infra;
+use asphanyx::shared::interfaces::rest::configuration::web_configuration::WebConfiguration;
+use asphanyx::shared::interfaces::rest::middleware::{
     rate_limit_middleware, require_admin_panel_origin,
 };
 use std::{collections::HashMap, sync::Arc};
