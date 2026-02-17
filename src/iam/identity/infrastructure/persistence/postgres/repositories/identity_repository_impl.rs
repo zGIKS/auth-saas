@@ -32,21 +32,22 @@ impl IdentityRepository for IdentityRepositoryImpl {
     ) -> Result<DomainIdentity, Box<dyn Error + Send + Sync>> {
         let insert_model = Self::build_active_model(&identity);
 
-        match IdentityEntity::insert(insert_model).exec(&self.db).await {
-            Ok(_) => Ok(identity),
-            Err(err) => {
-                if Self::is_duplicate_key_error(&err) {
-                    let update_model = Self::build_active_model(&identity);
-                    IdentityEntity::update(update_model)
-                        .exec(&self.db)
-                        .await
-                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-                    Ok(identity)
-                } else {
-                    Err(Box::new(err))
-                }
-            }
-        }
+        IdentityEntity::insert(insert_model)
+            .on_conflict(
+                sea_orm::sea_query::OnConflict::column(Column::Id)
+                    .update_columns([
+                        Column::Email,
+                        Column::PasswordHash,
+                        Column::AuthProvider,
+                        Column::UpdatedAt,
+                    ])
+                    .to_owned(),
+            )
+            .exec(&self.db)
+            .await
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
+        Ok(identity)
     }
 
     async fn find_by_email(
@@ -93,9 +94,5 @@ impl IdentityRepositoryImpl {
             created_at: Set(identity.audit().created_at.into()),
             updated_at: Set(identity.audit().updated_at.into()),
         }
-    }
-
-    fn is_duplicate_key_error(err: &DbErr) -> bool {
-        matches!(err, DbErr::Exec(exec_err) if exec_err.to_string().contains("duplicate key value"))
     }
 }

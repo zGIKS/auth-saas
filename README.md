@@ -1,78 +1,140 @@
-# Swagger Axum API
+# SaaS Auth Platform
 
-A simple API built with Axum and Rust that provides a "Hello World" endpoint with Swagger documentation.
+Este repositorio contiene el backend del servicio de autenticación y autorización multi-tenant basado en Axum + SeaORM. Incluye contextos modulares para **tenancy**, **identity**, **authentication**, **federation**, **messaging** y utilidades compartidas. El servidor expone Swagger y endpoints REST para todo el ciclo de vida de usuarios, tokens, tenants y federación con Google.
 
-## Features
+## Características principales
 
-- GET /hello endpoint that returns "Hello World"
-- Automatic documentation with Swagger UI
-- Port configuration through environment variables
-- Asynchronous web server with Tokio
+- Configuración multi-tenant con estrategia `shared` (1 DB compartida, 1 schema por tenant) y claves `anon_key`.
+- Registro, verificación de email, login, refresh/logout, recuperación de contraseña y Google OAuth.
+- Módulo `AdminIdentity` para login admin, bootstrap inicial y recovery de credenciales.
+- Redis para sesiones, refresh tokens, rate limiting y lockout.
+- Circuit breaker y mensajería SMTP para notificaciones seguras.
+- Documentación OpenAPI pública (`/swagger-ui` y `/api-docs/openapi.json`).
 
-## Requirements
+## Requisitos
 
-- Rust 1.70 or higher
+- Rust 1.70+
 - Cargo
+- PostgreSQL y Redis accesibles con las URLs definidas en `.env`
 
-## Installation
+## Instalación y ejecución
 
-1. Clone the repository:
+1. Clona el repositorio:
    ```bash
-   git clone <repository-url>
-   cd auth-service
+   git clone <repository-url> asphanyx
+   cd asphanyx
+   ```
+2. Ajusta `.env` con las variables obligatorias (ejemplo mínimo en `.env`).
+3. Compila y ejecuta:
+   ```bash
+   cargo run
+   ```
+4. Accede al servidor en `http://localhost:<PORT>` (por defecto 8081 según `.env`).
+
+## Deploy con Docker Compose (seguro)
+
+Se agregó un despliegue con `docker-compose.yml` para correr solo la API. Postgres y Redis se toman desde variables de entorno (`DATABASE_URL` y `REDIS_URL`) apuntando a servicios externos.
+
+1. Crea archivo de entorno para deploy:
+   ```bash
+   cp .env .env.backup
+   ```
+2. Edita `.env` con valores de deploy reales (`JWT_SECRET`, `DATABASE_URL`, `REDIS_URL`, `SMTP_PASSWORD`, `GOOGLE_REDIRECT_URI`).
+3. Levanta los servicios:
+   ```bash
+   docker compose up -d --build
+   ```
+4. Verifica estado:
+   ```bash
+   docker compose ps
+   docker compose logs -f app
    ```
 
-2. Install dependencies:
+Endurecimientos incluidos en Compose:
+
+- API ejecuta como usuario no-root, `read_only`, `cap_drop: ALL` y `no-new-privileges`.
+- La conexión a Postgres y Redis se resuelve vía env vars para usar servicios administrados fuera de Docker.
+- Healthcheck en app para validar disponibilidad del proceso HTTP.
+
+## Configuración clave
+
+Variables imprescindibles (usa `.env`):
+
+- `DATABASE_URL`, `REDIS_URL`: conexiones a Postgres y Redis.
+- `JWT_SECRET`, `SESSION_DURATION_SECONDS`, `REFRESH_TOKEN_DURATION_SECONDS`: seguridad de tokens.
+- `SWAGGER_ENABLED` (opcional): habilita o deshabilita Swagger en runtime.
+- `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`: rutas de callback y referencia para correos.
+- `SMTP_*`: servidor SMTP para correos transaccionales.
+- `LOCKOUT_THRESHOLD`, `LOCKOUT_DURATION_SECONDS`: control de bloqueo por intentos fallidos.
+
+## Comandos operativos
+
+- Ejecutar API:
+  ```bash
+  cargo run
+  ```
+- Crear admin inicial (solo primera vez):
+  ```bash
+  cargo run --bin admin_identity_bootstrap_cli
+  ```
+- Recuperar acceso admin (reemplaza username/password del admin unico):
+  ```bash
+  cargo run --bin admin_identity_recover_cli
+  ```
+
+### Crear o recuperar admin desde Docker
+
+1. Construye/actualiza imagen:
    ```bash
-   cargo build
+   docker compose build app
+   ```
+2. Crear admin inicial (solo primera vez):
+   ```bash
+   docker compose run --rm --entrypoint /usr/local/bin/admin_identity_bootstrap_cli app
+   ```
+3. Recuperar acceso admin (si ya existe admin y quieres rotar credenciales):
+   ```bash
+   docker compose run --rm --entrypoint /usr/local/bin/admin_identity_recover_cli app
    ```
 
-## Configuration
+Ambos comandos imprimen en consola:
 
-Create a `.env` file in the project root:
+- `username=<valor>`
+- `password=<valor>`
 
-```
-PORT=3000
-```
+Consulta `.env` para un set completo de ejemplo local.
 
-If not specified, the default port is 3000.
+## Endpoints principales
 
-## Running
+Además del Swagger (`/swagger-ui`), el backend expone:
 
-```bash
-cargo run
-```
+- `/api/v1/tenants`: creación/consulta de tenants y sus claves anon.
+- `/api/v1/admin/login`: login de administrador (JWT admin).
+- `/api/v1/auth/*`: login, logout, refresh, verificación y federación con Google.
+- `/api/v1/identity/*`: flujo completo de registro, confirmación y recuperación de contraseña.
+- `/api/v1/auth/google/*`: inicio de OAuth y claim de tokens intercambiados en Redis.
 
-The server will start at `http://localhost:<PORT>`.
+`POST /api/v1/tenants` requiere JWT de admin en `Authorization: Bearer <token>`.
 
-## API Endpoints
+Para detalles completos de payloads, errores y flujos sugeridos revisa `docs/`.
 
-### GET /hello
+## Documentación de bounded contexts
 
-Returns a "Hello World" message.
+Los documentos en `docs/` explican cada módulo con visión general, endpoints, variables, errores, ejemplos y referencias de código:
 
-**Response:**
-- 200 OK: "Hello World"
+- `identity-bc.md`: registro/confirmación, reset, envío de correos, interacción con Redis y lockout.
+- `admin-identity-bc.md`: login admin, bootstrap/recovery por CLI y guard para creación de tenants.
+- `commands.md`: comandos operativos de ejecución, bootstrap/recovery y calidad de código.
+- `auth-bc.md`: login, refresh, logout, verificación de JWT y Google OAuth (incluye ejemplos de request/respuesta).
+- `tenancy-bc.md`: creación de tenants, estrategia shared (schema por tenant), generación de `anon_key`.
+- `federation-bc.md`: flujo completo de Google OAuth, CSRF y tokens temporales.
+- `messaging-bc.md`: pipeline de mensajería, circuit breaker y configuración SMTP.
+- `shared-bc.md`: AppState, middleware, rate limiter, circuit breaker y modelos auditables comunes.
 
-## Swagger Documentation
+## Recursos adicionales
 
-Access the interactive documentation at: `http://localhost:<PORT>/swagger-ui`
+- Swagger UI: `http://localhost:<PORT>/swagger-ui`
+- OpenAPI JSON:  `http://localhost:<PORT>/api-docs/openapi.json`
+- Carpetas clave: `src/iam`, `src/tenancy`, `src/messaging`, `src/shared`
 
-## Dependencies
-
-- `axum`: Web framework for Rust
-- `tokio`: Asynchronous runtime
-- `utoipa`: OpenAPI generation
-- `utoipa-swagger-ui`: Swagger UI interface
-- `dotenvy`: Environment variable loading
-
-## Project Structure
-
-```
-.
-├── Cargo.toml          # Rust project configuration
-├── .env                # Environment variables
-├── src/
-│   └── main.rs         # Main application code
-└── README.md           # This documentation
-```
+Mantén la documentación en `docs/` sincronizada si agregas nuevos endpoints o variables.

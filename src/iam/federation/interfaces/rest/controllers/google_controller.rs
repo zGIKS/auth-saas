@@ -1,9 +1,11 @@
 use axum::{
-    extract::{Json, Query, State},
+    extract::{Extension, Json, Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::Validate;
 
@@ -30,6 +32,20 @@ use crate::iam::federation::{
 };
 use crate::iam::identity::infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl;
 use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
+use crate::tenancy::interfaces::rest::middleware::TenantContext;
+use crate::tenancy::domain::{
+    model::value_objects::{db_strategy::DbStrategy, tenant_id::TenantId},
+    repositories::tenant_repository::TenantRepository,
+};
+use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct StateClaims {
+    tenant_id: Uuid,
+    iat: usize,
+    nonce: String,
+    exp: usize,
+}
 
 #[utoipa::path(
     get,
@@ -39,26 +55,71 @@ use crate::shared::interfaces::rest::{app_state::AppState, error_response::Error
 )]
 pub async fn redirect_to_google(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     jar: CookieJar,
-) -> impl IntoResponse {
-    let csrf_state = Uuid::new_v4().to_string();
+) -> (CookieJar, impl IntoResponse) {
+    // Validate that tenant has OAuth configured
+    let client_id = match &tenant_ctx.tenant.auth_config.google_client_id {
+        Some(id) => id,
+        None => {
+            return (
+                jar,
+                ErrorResponse::new("Google OAuth is not configured for this tenant")
+                    .with_code(400)
+                    .into_response(),
+            );
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp() as usize;
+    let nonce = Uuid::new_v4().to_string();
+
+    // Set cookie with nonce
+    let mut cookie = Cookie::new("oauth_state", nonce.clone());
+    let frontend_url = tenant_ctx
+        .tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .unwrap_or(state.frontend_url.as_str());
+    let secure_cookie =
+        state.google_redirect_uri.starts_with("https://") || frontend_url.starts_with("https://");
+    cookie.set_path("/");
+    cookie.set_secure(secure_cookie);
+    cookie.set_http_only(true);
+    cookie.set_same_site(SameSite::Lax);
+    // cookie.set_max_age(...) // defaults to session if not set, or we can set it to 10 mins
+
+    let jar = jar.add(cookie);
+
+    let claims = StateClaims {
+        tenant_id: tenant_ctx.tenant.id.value(),
+        iat: now,
+        nonce,
+        exp: now + 600, // 10 minutes
+    };
+
+    let csrf_state = match encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
+    ) {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::error!("Failed to sign state: {}", e);
+            return (jar, ErrorResponse::internal_error().into_response());
+        }
+    };
+
     let scope = urlencoding::encode("openid email profile");
-    let redirect_uri = urlencoding::encode(&state.google_redirect_uri);
+    let redirect_uri_encoded = urlencoding::encode(&state.google_redirect_uri);
 
     let url = format!(
         "https://accounts.google.com/o/oauth2/v2/auth?client_id={}&redirect_uri={}&response_type=code&scope={}&access_type=offline&prompt=consent&state={}",
-        state.google_client_id, redirect_uri, scope, csrf_state
+        client_id, redirect_uri_encoded, scope, csrf_state
     );
 
-    let mut cookie = Cookie::new("oauth_state", csrf_state);
-    cookie.set_http_only(true);
-    cookie.set_secure(true); // Ensure HTTPS is used
-    cookie.set_same_site(SameSite::Lax);
-    cookie.set_path("/");
-    // Expire in 10 minutes
-    cookie.set_max_age(time::Duration::minutes(10));
-
-    (jar.add(cookie), Redirect::to(&url))
+    (jar, Redirect::to(&url).into_response())
 }
 
 #[utoipa::path(
@@ -73,48 +134,144 @@ pub async fn redirect_to_google(
 )]
 pub async fn google_callback(
     State(state): State<AppState>,
-    jar: CookieJar,
     Query(query): Query<GoogleCallbackQuery>,
-) -> impl IntoResponse {
-    let frontend_url = match state.frontend_url.as_deref() {
-        Some(url) => url,
+    jar: CookieJar,
+) -> (CookieJar, impl IntoResponse) {
+    let fallback_frontend_url = state.frontend_url.as_str();
+
+    // 1. Verify State (CSRF & Context)
+    let state_token = match query.state {
+        Some(s) => s,
         None => {
-            return ErrorResponse::new("Frontend URL not configured")
-                .with_code(StatusCode::INTERNAL_SERVER_ERROR.as_u16())
-                .into_response();
+            let redirect_url = format!(
+                "{}/login?error=csrf_error&message={}",
+                fallback_frontend_url,
+                urlencoding::encode("Missing state parameter")
+            );
+            return (jar, Redirect::to(&redirect_url).into_response());
         }
     };
 
-    // CSRF Validation
-    let cookie_state = jar.get("oauth_state").map(|c| c.value().to_string());
-    if query.state.is_none() || cookie_state.is_none() || query.state != cookie_state {
+    let token_data = match decode::<StateClaims>(
+        &state_token,
+        &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
+        &Validation::default(),
+    ) {
+        Ok(data) => data,
+        Err(e) => {
+            let redirect_url = format!(
+                "{}/login?error=csrf_error&message={}",
+                fallback_frontend_url,
+                urlencoding::encode(&format!("Invalid or expired state: {}", e))
+            );
+            return (jar, Redirect::to(&redirect_url).into_response());
+        }
+    };
+
+    // Validate Cookie Nonce
+    let cookie_nonce = jar.get("oauth_state").map(|c| c.value().to_string());
+    if cookie_nonce.is_none() || cookie_nonce.unwrap() != token_data.claims.nonce {
         let redirect_url = format!(
             "{}/login?error=csrf_error&message={}",
-            frontend_url,
-            urlencoding::encode("Invalid CSRF state")
+            fallback_frontend_url,
+            urlencoding::encode("State mismatch (CSRF detected)")
         );
-        return (
-            jar.remove(Cookie::from("oauth_state")),
-            Redirect::to(&redirect_url),
-        )
-            .into_response();
+        // Clear cookie just in case
+        let jar = jar.remove(Cookie::from("oauth_state"));
+        return (jar, Redirect::to(&redirect_url).into_response());
     }
 
-    // Clean up cookie
+    // Clear cookie as it's used
     let jar = jar.remove(Cookie::from("oauth_state"));
 
+    // 2. Load Tenant
+    let tenant_id = TenantId::new(token_data.claims.tenant_id);
+    let tenant_repo = PostgresTenantRepository::new(state.db.clone());
+
+    let tenant = match tenant_repo.find_by_id(&tenant_id).await {
+        Ok(Some(t)) => t,
+        Ok(None) => {
+            let redirect_url = format!(
+                "{}/login?error=tenant_not_found&message={}",
+                fallback_frontend_url,
+                urlencoding::encode("Tenant not found")
+            );
+            return (jar, Redirect::to(&redirect_url).into_response());
+        }
+        Err(e) => {
+            tracing::error!("Failed to load tenant: {}", e);
+            let redirect_url = format!(
+                "{}/login?error=internal_error&message={}",
+                fallback_frontend_url,
+                urlencoding::encode("Internal error loading tenant")
+            );
+            return (jar, Redirect::to(&redirect_url).into_response());
+        }
+    };
+
+    let frontend_url = tenant
+        .auth_config
+        .frontend_url
+        .as_deref()
+        .unwrap_or(fallback_frontend_url);
+
+    // 3. Validate Tenant Configuration
+    let google_client_id = match &tenant.auth_config.google_client_id {
+        Some(id) => id.clone(),
+        None => {
+            let redirect_url = format!(
+                "{}/login?error=oauth_not_configured&message={}",
+                frontend_url,
+                urlencoding::encode("Google OAuth is not configured for this tenant")
+            );
+            return (jar, Redirect::to(&redirect_url).into_response());
+        }
+    };
+
+    let google_client_secret = match &tenant.auth_config.google_client_secret {
+        Some(secret) => secret.clone(),
+        None => {
+            let redirect_url = format!(
+                "{}/login?error=oauth_not_configured&message={}",
+                frontend_url,
+                urlencoding::encode("Google OAuth is not configured for this tenant")
+            );
+            return (jar, Redirect::to(&redirect_url).into_response());
+        }
+    };
+
+    let google_redirect_uri = state.google_redirect_uri.clone();
+
     let oauth_client = GoogleOAuthClient::new(
-        state.google_client_id.clone(),
-        state.google_client_secret.clone(),
-        state.google_redirect_uri.clone(),
+        google_client_id,
+        google_client_secret,
+        google_redirect_uri,
         state.circuit_breaker.clone(),
     );
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
-    let token_service =
-        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let tenant_db = match resolve_tenant_db(&state, &tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(_) => {
+            let redirect_url = format!(
+                "{}/login?error=internal_error&message={}",
+                frontend_url,
+                urlencoding::encode("Configuration Error")
+            );
+            return (jar, Redirect::to(&redirect_url).into_response());
+        }
+    };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+
+    // Use tenant-specific JWT secret
+    let token_service = JwtTokenService::new(
+        tenant.auth_config.jwt_secret.clone(),
+        state.session_duration_seconds,
+    );
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
 
     let service = GoogleFederationService::new(
         identity_repo,
@@ -131,6 +288,7 @@ pub async fn google_callback(
             let exchange_tokens = ExchangeTokens {
                 access_token: token.value().to_string(),
                 refresh_token: refresh_token.value().to_string(),
+                tenant_id: tenant.id.value(), // Bind to Tenant
             };
 
             match token_exchange_repo.save(exchange_tokens).await {
@@ -141,7 +299,7 @@ pub async fn google_callback(
                         frontend_url,
                         urlencoding::encode(&code)
                     );
-                    (jar, Redirect::to(&redirect_url)).into_response()
+                    (jar, Redirect::to(&redirect_url).into_response())
                 }
                 Err(e) => {
                     tracing::error!("Failed to save exchange tokens: {:?}", e);
@@ -150,7 +308,7 @@ pub async fn google_callback(
                         frontend_url,
                         urlencoding::encode("Failed to secure login session")
                     );
-                    (jar, Redirect::to(&redirect_url)).into_response()
+                    (jar, Redirect::to(&redirect_url).into_response())
                 }
             }
         }
@@ -172,7 +330,7 @@ pub async fn google_callback(
                 frontend_url,
                 urlencoding::encode(error_msg)
             );
-            (jar, Redirect::to(&redirect_url)).into_response()
+            (jar, Redirect::to(&redirect_url).into_response())
         }
     }
 }
@@ -190,6 +348,7 @@ pub async fn google_callback(
 )]
 pub async fn claim_token(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(payload): Json<ClaimTokenRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = payload.validate() {
@@ -200,7 +359,10 @@ pub async fn claim_token(
 
     let token_exchange_repo = TokenExchangeRepositoryImpl::new(state.redis.clone());
 
-    match token_exchange_repo.claim(payload.code).await {
+    match token_exchange_repo
+        .claim(payload.code, tenant_ctx.tenant.id.value())
+        .await
+    {
         Ok(Some(tokens)) => (
             StatusCode::OK,
             Json(ClaimTokenResponse {
@@ -215,6 +377,20 @@ pub async fn claim_token(
         Err(e) => {
             tracing::error!("Failed to claim exchange token: {:?}", e);
             ErrorResponse::internal_error().into_response()
+        }
+    }
+}
+
+async fn resolve_tenant_db(
+    state: &AppState,
+    db_strategy: &DbStrategy,
+) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
+    match db_strategy {
+        DbStrategy::Isolated { database } => {
+            state.tenant_db_for_database(database).await.map_err(|e| {
+                tracing::error!("Failed to connect to tenant database: {}", e);
+                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+            })
         }
     }
 }

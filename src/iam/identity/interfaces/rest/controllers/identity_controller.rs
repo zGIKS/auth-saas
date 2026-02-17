@@ -1,6 +1,8 @@
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
+use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
+use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use axum::{
-    extract::{Json, Query, State},
+    extract::{Extension, Json, Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
@@ -44,7 +46,7 @@ use crate::iam::identity::application::outbound::acl::email_service::EmailServic
 
 #[utoipa::path(
     post,
-    path = "/api/v1/auth/sign-up",
+    path = "/api/v1/identity/sign-up",
     tag = "identity",
     request_body = RegisterIdentityRequest,
     responses(
@@ -55,6 +57,7 @@ use crate::iam::identity::application::outbound::acl::email_service::EmailServic
 )]
 pub async fn register_identity(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(payload): Json<RegisterIdentityRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = payload.validate() {
@@ -78,9 +81,15 @@ pub async fn register_identity(
 
     let command = RegisterIdentityCommand::new(email, password, provider);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(resp) => return resp.into_response(),
+    };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     // Messaging / Email Service Construction
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
@@ -97,12 +106,16 @@ pub async fn register_identity(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -111,7 +124,8 @@ pub async fn register_identity(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url);
 
     match service.handle(command).await {
         Ok((_identity, _token)) => {
@@ -153,17 +167,18 @@ pub async fn register_identity(
 )]
 pub async fn confirm_registration(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Query(params): Query<ConfirmEmailQueryParams>,
 ) -> impl IntoResponse {
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
+
     // Validate query params
     if let Err(e) = params.validate() {
+        let error_msg = e.to_string();
         let error_url = format!(
             "{}/email-verification-failed?error=invalid_token&message={}",
-            state
-                .frontend_url
-                .as_deref()
-                .unwrap_or("http://localhost:3000"),
-            urlencoding::encode(&e.to_string())
+            frontend_url.as_str(),
+            urlencoding::encode(&error_msg)
         );
         return Redirect::to(&error_url).into_response();
     }
@@ -172,13 +187,11 @@ pub async fn confirm_registration(
     let query = match ConfirmEmailQuery::new(params.token.clone()) {
         Ok(q) => q,
         Err(e) => {
+            let error_msg = e.to_string();
             let error_url = format!(
                 "{}/email-verification-failed?error=invalid_token&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
-                urlencoding::encode(&e.to_string())
+                frontend_url.as_str(),
+                urlencoding::encode(&error_msg)
             );
             return Redirect::to(&error_url).into_response();
         }
@@ -187,9 +200,22 @@ pub async fn confirm_registration(
     // Use existing command for backward compatibility
     let command = ConfirmRegistrationCommand::new(query.token);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(_resp) => {
+            let error_url = format!(
+                "{}/email-verification-failed?error=service_unavailable&message={}",
+                frontend_url.as_str(),
+                urlencoding::encode("Configuration error")
+            );
+            return Redirect::to(&error_url).into_response();
+        }
+    };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -197,10 +223,7 @@ pub async fn confirm_registration(
             tracing::error!("Failed to initialize email sender: {}", e);
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url.as_str(),
                 urlencoding::encode("Service temporarily unavailable")
             );
             return Redirect::to(&error_url).into_response();
@@ -211,8 +234,11 @@ pub async fn confirm_registration(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
@@ -225,17 +251,12 @@ pub async fn confirm_registration(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url.clone());
 
     match service.confirm_registration(command).await {
         Ok(_) => {
-            let success_url = format!(
-                "{}/email-verified?success=true",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000")
-            );
+            let success_url = format!("{}/email-verified?success=true", frontend_url.as_str());
             Redirect::to(&success_url).into_response()
         }
         Err(e) => {
@@ -249,10 +270,7 @@ pub async fn confirm_registration(
             };
             let error_url = format!(
                 "{}/email-verification-failed?error=verification_failed&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url.as_str(),
                 urlencoding::encode(error_msg)
             );
             Redirect::to(&error_url).into_response()
@@ -273,6 +291,7 @@ pub async fn confirm_registration(
 )]
 pub async fn request_password_reset(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(payload): Json<RequestPasswordResetRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = payload.validate() {
@@ -288,9 +307,15 @@ pub async fn request_password_reset(
 
     let command = RequestPasswordResetCommand::new(email);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(resp) => return resp.into_response(),
+    };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -306,12 +331,16 @@ pub async fn request_password_reset(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -320,7 +349,8 @@ pub async fn request_password_reset(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url);
 
     match service.request_password_reset(command).await {
         Ok(_) => {
@@ -355,6 +385,7 @@ pub async fn request_password_reset(
 )]
 pub async fn reset_password(
     State(state): State<AppState>,
+    Extension(tenant_ctx): Extension<TenantContext>,
     Json(payload): Json<ResetPasswordRequest>,
 ) -> impl IntoResponse {
     if let Err(e) = payload.validate() {
@@ -368,9 +399,15 @@ pub async fn reset_password(
 
     let command = ResetPasswordCommand::new(payload.token, new_password);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
-    let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
-    let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
+    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
+        Ok(db) => db,
+        Err(resp) => return resp.into_response(),
+    };
+    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+    let pending_repo =
+        PendingIdentityRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
+    let password_reset_repo =
+        PasswordResetTokenRepositoryImpl::new(state.redis.clone(), state.circuit_breaker.clone());
 
     let smtp_sender = match SmtpEmailSender::new(state.circuit_breaker.clone()) {
         Ok(s) => s,
@@ -386,12 +423,16 @@ pub async fn reset_password(
     let email_service = EmailService::new(messaging_facade);
 
     // Session Invalidation Service
-    let session_repo =
-        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let session_repo = RedisSessionRepository::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
     let session_invalidation_service = SessionInvalidationServiceImpl::new(session_repo);
 
     let ttl = std::time::Duration::from_secs(state.pending_registration_ttl_seconds);
     let reset_ttl = std::time::Duration::from_secs(state.password_reset_ttl_seconds);
+    let frontend_url = tenant_frontend_url(&state, &tenant_ctx);
     let service = IdentityCommandServiceImpl::new(
         identity_repo,
         pending_repo,
@@ -400,7 +441,8 @@ pub async fn reset_password(
         session_invalidation_service,
         ttl,
         reset_ttl,
-    );
+    )
+    .with_frontend_url(frontend_url);
 
     match service.reset_password(command).await {
         Ok(_) => {
@@ -421,4 +463,27 @@ pub async fn reset_password(
             }
         },
     }
+}
+
+async fn resolve_tenant_db(
+    state: &AppState,
+    db_strategy: &DbStrategy,
+) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
+    match db_strategy {
+        DbStrategy::Isolated { database } => {
+            state.tenant_db_for_database(database).await.map_err(|e| {
+                tracing::error!("Failed to connect to tenant database: {}", e);
+                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
+            })
+        }
+    }
+}
+
+fn tenant_frontend_url(state: &AppState, tenant_ctx: &TenantContext) -> String {
+    tenant_ctx
+        .tenant
+        .auth_config
+        .frontend_url
+        .clone()
+        .unwrap_or_else(|| state.frontend_url.clone())
 }
