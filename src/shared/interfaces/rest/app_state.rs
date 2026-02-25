@@ -16,7 +16,7 @@ pub struct AppState {
     pub refresh_token_duration_seconds: u64,
     pub pending_registration_ttl_seconds: u64,
     pub password_reset_ttl_seconds: u64,
-    pub frontend_url: String,
+    pub frontend_url: Option<String>,
     pub lockout_threshold: u64,
     pub lockout_duration_seconds: u64,
     pub google_redirect_uri: String, // Fixed redirect URI for all tenants

@@ -50,6 +50,7 @@ async fn test_register_identity_success() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let email = Email::new("test@gmail.com".to_string()).unwrap();
     let password = Password::new("SecurePass123!".to_string()).unwrap();
@@ -90,6 +91,7 @@ async fn test_register_identity_duplicate_email() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let email = Email::new("duplicate@gmail.com".to_string()).unwrap();
     let password = Password::new("SecurePass123!".to_string()).unwrap();
@@ -153,6 +155,7 @@ async fn test_password_is_hashed_before_saving_pending() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
     let email = Email::new("hash_test@gmail.com".to_string()).unwrap();
     let password = Password::new(plain_password.to_string()).unwrap();
     let command = RegisterIdentityCommand::new(email, password, AuthProvider::Email);
@@ -210,6 +213,7 @@ async fn test_register_identity_overwrites_existing_pending() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
     let email = Email::new("overwrite@gmail.com".to_string()).unwrap();
     let password = Password::new("SecurePass123!".to_string()).unwrap();
     let command = RegisterIdentityCommand::new(email, password, AuthProvider::Email);

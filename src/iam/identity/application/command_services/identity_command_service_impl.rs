@@ -309,7 +309,9 @@ where
             return Ok(value.clone());
         }
 
-        load_frontend_url()
+        Err(DomainError::InternalError(
+            "Tenant frontend_url must be provided".to_string(),
+        ))
     }
 }
 
@@ -321,12 +323,7 @@ fn validate_frontend_url(url: &str) -> Result<(), DomainError> {
         Ok(())
     } else {
         Err(DomainError::InternalError(
-            "FRONTEND_URL must use HTTPS for security, or HTTP only for localhost/127.0.0.1 in development".to_string(),
+            "frontend_url must use HTTPS for security, or HTTP only for localhost/127.0.0.1 in development".to_string(),
         ))
     }
-}
-
-fn load_frontend_url() -> Result<String, DomainError> {
-    std::env::var("FRONTEND_URL")
-        .map_err(|_| DomainError::InternalError("FRONTEND_URL must be set".to_string()))
 }

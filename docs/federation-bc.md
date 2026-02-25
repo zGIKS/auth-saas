@@ -20,13 +20,13 @@ Depende de:
 
 ### `GET /api/v1/auth/google/callback`
 - **Ruta pública** (no pasa por `tenant_resolver`).
-- Valida el `state` **firmado** (JWT). Si falla, redirige a `FRONTEND_URL/login?error=csrf_error`.
+- Valida el `state` **firmado** (JWT). Si falla, redirige al `frontend_url` del tenant cuando sea resoluble; en errores tempranos sin tenant responde error HTTP.
 - Extrae `tenant_id` del `state`, carga el tenant desde Postgres y usa su config OAuth.
 - Instancia `GoogleOAuthClient` y llama a `exchange_code` (circuit breaker). Si falla, escribe error y redirige con detalle.
 - Si ya existe identidad con ese email pero distinto proveedor, falla con `ProviderMismatch`.
 - Si no existe, crea la identidad con contraseña placeholder y provider Google.
 - Genera token + refresh como en sign-in y guarda ambos en Redis.
-- Llama a `TokenExchangeRepository::save` para emitir un `code` temporal (`google_exchange:<code>`). Redirige a `FRONTEND_URL/auth/google/callback?code=<code>` para que el frontend lo intercambie.
+- Llama a `TokenExchangeRepository::save` para emitir un `code` temporal (`google_exchange:<code>`). Redirige a `frontend_url` del tenant en `/auth/google/callback?code=<code>` para que el frontend lo intercambie.
 
 ### `POST /api/v1/auth/google/claim`
 - Recibe `ClaimTokenRequest { code }` validado.
@@ -45,7 +45,7 @@ Depende de:
 
 1. El usuario clickea “Continuar con Google” → Frontend hace GET `/api/v1/auth/google` **con `anon_key`** (por ejemplo vía route intermedia).
 2. Google redirige a `/api/v1/auth/google/callback` en el backend (con `state` firmado).
-3. Backend, tras obtener tokens Google, redirige a `FRONTEND_URL/auth/google/callback?code=<código efímero>`.
+3. Backend, tras obtener tokens Google, redirige a `frontend_url` del tenant en `/auth/google/callback?code=<código efímero>`.
 4. Frontend POST `/api/v1/auth/google/claim` con ese `code`.
 5. Backend responde con `{ token, refresh_token }` que el frontend usa igual que el login estándar.
 

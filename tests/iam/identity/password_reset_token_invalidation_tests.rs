@@ -69,6 +69,7 @@ async fn test_multiple_password_reset_requests_invalidate_previous_tokens() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     // First request
     let command1 = RequestPasswordResetCommand::new(test_email.clone());
@@ -169,6 +170,7 @@ async fn test_password_reset_handles_concurrent_requests_safely() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
