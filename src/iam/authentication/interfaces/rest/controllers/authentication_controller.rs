@@ -30,13 +30,13 @@ use crate::iam::identity::{
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutService;
 use crate::shared::interfaces::rest::app_state::AppState;
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
+use crate::shared::interfaces::rest::middleware::extract_client_ip;
 use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
 use crate::tenancy::interfaces::rest::middleware::TenantContext;
-use sea_orm::DatabaseConnection;
 
 use axum::{
     extract::{ConnectInfo, Extension, Json, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use std::net::SocketAddr;
@@ -56,6 +56,7 @@ use validator::Validate;
 pub async fn signin(
     State(state): State<AppState>,
     Extension(tenant_ctx): Extension<TenantContext>,
+    headers: HeaderMap,
     // ConnectInfo is available because we use into_make_service_with_connect_info in main.rs
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(resource): Json<SigninResource>,
@@ -65,7 +66,7 @@ pub async fn signin(
     }
 
     // Extract IP from ConnectInfo
-    let ip_address = Some(addr.ip().to_string());
+    let ip_address = Some(extract_client_ip(&headers, Some(addr.ip())));
 
     let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
         Ok(db) => db,
@@ -316,11 +317,11 @@ pub async fn verify_token(
 async fn resolve_tenant_db(
     state: &AppState,
     db_strategy: &DbStrategy,
-) -> Result<DatabaseConnection, ErrorResponse> {
+) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
     match db_strategy {
-        DbStrategy::Shared { schema } => {
-            state.connection_manager.get_tenant_connection(schema).await.map_err(|e| {
-                tracing::error!("Failed to connect to tenant database {}: {}", schema, e);
+        DbStrategy::Isolated { database } => {
+            state.tenant_db_for_database(database).await.map_err(|e| {
+                tracing::error!("Failed to connect to tenant database: {}", e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
             })
         }

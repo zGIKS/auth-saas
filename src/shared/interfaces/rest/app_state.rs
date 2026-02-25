@@ -1,5 +1,8 @@
+use std::{collections::HashMap, sync::Arc};
+
 use redis::Client;
-use sea_orm::DatabaseConnection;
+use sea_orm::{DatabaseConnection, DbErr};
+use tokio::sync::RwLock;
 
 use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
 use crate::shared::infrastructure::persistence::sqlite::connection_manager::ConnectionManager;
@@ -20,6 +23,31 @@ pub struct AppState {
     pub jwt_secret: String,
     pub swagger_enabled: bool,
     pub circuit_breaker: AppCircuitBreaker,
+    pub tenant_db_cache: Arc<RwLock<HashMap<String, DatabaseConnection>>>,
+}
+
+impl AppState {
+    pub async fn tenant_db_for_database(
+        &self,
+        database_name: &str,
+    ) -> Result<DatabaseConnection, DbErr> {
+        {
+            let cache = self.tenant_db_cache.read().await;
+            if let Some(connection) = cache.get(database_name) {
+                return Ok(connection.clone());
+            }
+        }
+
+        let new_connection = self.connection_manager.get_tenant_connection(database_name).await?;
+
+        let mut cache = self.tenant_db_cache.write().await;
+        if let Some(connection) = cache.get(database_name) {
+            return Ok(connection.clone());
+        }
+
+        cache.insert(database_name.to_string(), new_connection.clone());
+        Ok(new_connection)
+    }
 }
 
 impl axum::extract::FromRef<AppState> for DatabaseConnection {

@@ -28,7 +28,7 @@ impl SqliteDatabaseProvisioner {
 
 #[async_trait]
 impl SchemaProvisioner for SqliteDatabaseProvisioner {
-    async fn create_schema(&self, schema_name: &str) -> Result<(), DomainError> {
+    async fn create_database(&self, database_name: &str) -> Result<(), DomainError> {
         // Ensure data directory exists
         if let Err(e) = fs::create_dir_all(&self.data_dir).await {
             return Err(DomainError::InfrastructureError(format!(
@@ -37,10 +37,10 @@ impl SchemaProvisioner for SqliteDatabaseProvisioner {
             )));
         }
 
-        let db_path = self.get_db_path(schema_name);
+        let db_path = self.get_db_path(database_name);
         
         // Creating the connection with mode=rwc will create the file if it doesn't exist
-        let connection_string = self.get_connection_string(schema_name);
+        let connection_string = self.get_connection_string(database_name);
         match Database::connect(&connection_string).await {
             Ok(_) => {
                 tracing::info!("SQLite database file created/verified at {}", db_path);
@@ -53,8 +53,8 @@ impl SchemaProvisioner for SqliteDatabaseProvisioner {
         }
     }
 
-    async fn run_migrations(&self, schema_name: &str) -> Result<(), DomainError> {
-        let connection_string = self.get_connection_string(schema_name);
+    async fn run_migrations(&self, database_name: &str) -> Result<(), DomainError> {
+        let connection_string = self.get_connection_string(database_name);
         let db = Database::connect(&connection_string)
             .await
             .map_err(|e| DomainError::InfrastructureError(format!("Failed to connect to tenant DB: {}", e)))?;
@@ -73,8 +73,8 @@ impl SchemaProvisioner for SqliteDatabaseProvisioner {
         Ok(())
     }
 
-    async fn drop_schema(&self, schema_name: &str) -> Result<(), DomainError> {
-        let db_path = self.get_db_path(schema_name);
+    async fn drop_database(&self, database_name: &str) -> Result<(), DomainError> {
+        let db_path = self.get_db_path(database_name);
         if Path::new(&db_path).exists() {
             fs::remove_file(&db_path).await.map_err(|e| {
                 DomainError::InfrastructureError(format!("Failed to delete SQLite database file: {}", e))

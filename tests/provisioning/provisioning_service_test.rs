@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use auth_service::provisioning::application::command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl;
-use auth_service::provisioning::domain::services::provisioning_command_service::ProvisioningCommandService;
-use auth_service::provisioning::domain::{
+use asphanyx::provisioning::application::command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl;
+use asphanyx::provisioning::domain::services::provisioning_command_service::ProvisioningCommandService;
+use asphanyx::provisioning::domain::{
     error::DomainError,
     model::commands::deprovision_tenant_resources_command::DeprovisionTenantResourcesCommand,
     model::commands::provision_tenant_resources_command::ProvisionTenantResourcesCommand,
@@ -15,9 +15,9 @@ mock! {
 
     #[async_trait]
     impl SchemaProvisioner for SchemaProvisioner {
-        async fn create_schema(&self, schema_name: &str) -> Result<(), DomainError>;
-        async fn run_migrations(&self, schema_name: &str) -> Result<(), DomainError>;
-        async fn drop_schema(&self, schema_name: &str) -> Result<(), DomainError>;
+        async fn create_database(&self, database_name: &str) -> Result<(), DomainError>;
+        async fn run_migrations(&self, database_name: &str) -> Result<(), DomainError>;
+        async fn drop_database(&self, database_name: &str) -> Result<(), DomainError>;
     }
 }
 
@@ -26,7 +26,7 @@ async fn test_provision_tenant_resources_success() {
     let mut mock_provisioner = MockSchemaProvisioner::new();
 
     mock_provisioner
-        .expect_create_schema()
+        .expect_create_database()
         .withf(|name| name == "tenant_acme")
         .times(1)
         .returning(|_| Ok(()));
@@ -51,7 +51,7 @@ async fn test_deprovision_tenant_resources_success() {
     let mut mock_provisioner = MockSchemaProvisioner::new();
 
     mock_provisioner
-        .expect_drop_schema()
+        .expect_drop_database()
         .withf(|name| name == "tenant_acme")
         .times(1)
         .returning(|_| Ok(()));

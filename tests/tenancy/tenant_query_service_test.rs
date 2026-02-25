@@ -1,5 +1,5 @@
-use auth_service::tenancy::application::query_services::tenant_query_service_impl::TenantQueryServiceImpl;
-use auth_service::tenancy::domain::{
+use asphanyx::tenancy::application::query_services::tenant_query_service_impl::TenantQueryServiceImpl;
+use asphanyx::tenancy::domain::{
     error::TenantError,
     model::{
         queries::reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
@@ -27,6 +27,7 @@ mock! {
         async fn update(&self, tenant: Tenant) -> Result<Tenant, TenantError>;
         async fn find_by_id(&self, id: &TenantId) -> Result<Option<Tenant>, TenantError>;
         async fn find_by_name(&self, name: &TenantName) -> Result<Option<Tenant>, TenantError>;
+        async fn find_all(&self, offset: u64, limit: u64) -> Result<Vec<Tenant>, TenantError>;
         async fn delete(&self, id: &TenantId) -> Result<(), TenantError>;
     }
 }
@@ -51,8 +52,8 @@ async fn test_reissue_tenant_anon_key_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("reissue-anon".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_reissue_anon".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_reissue_anon".to_string(),
         },
         AuthConfig::new(
             "tenant_jwt_secret_that_is_long_enough_123456".to_string(),
@@ -69,10 +70,7 @@ async fn test_reissue_tenant_anon_key_success() {
         .returning(move |_| Ok(Some(tenant.clone())));
 
     // Expect update because of version increment
-    mock_repo
-        .expect_update()
-        .times(1)
-        .returning(Ok);
+    mock_repo.expect_update().times(1).returning(Ok);
 
     let service = TenantQueryServiceImpl::new(mock_repo, jwt_secret.clone());
     let query = ReissueTenantAnonKeyQuery::new(tenant_id);
@@ -81,7 +79,15 @@ async fn test_reissue_tenant_anon_key_success() {
 
     let mut validation = Validation::new(Algorithm::HS256);
     validation.validate_exp = true;
-    validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
+    validation.set_required_spec_claims(&[
+        "iss",
+        "tenant_id",
+        "role",
+        "iat",
+        "exp",
+        "jti",
+        "version",
+    ]);
 
     let decoded = decode::<TestClaims>(
         &token,
@@ -105,8 +111,8 @@ async fn test_reissue_tenant_anon_key_inactive_tenant_fails() {
     let mut tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("inactive-tenant".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_inactive".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_inactive".to_string(),
         },
         AuthConfig::new(
             "tenant_jwt_secret_that_is_long_enough_123456".to_string(),

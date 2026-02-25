@@ -1,6 +1,6 @@
-use auth_service::iam::authentication::infrastructure::persistence::redis::redis_session_repository::RedisSessionRepository;
-use auth_service::iam::authentication::domain::services::authentication_command_service::SessionRepository;
-use auth_service::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
+use asphanyx::iam::authentication::infrastructure::persistence::redis::redis_session_repository::RedisSessionRepository;
+use asphanyx::iam::authentication::domain::services::authentication_command_service::SessionRepository;
+use asphanyx::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
 use std::time::Duration;
 use uuid::Uuid;
 

@@ -60,7 +60,11 @@ impl TokenExchangeRepository for TokenExchangeRepositoryImpl {
         Ok(code)
     }
 
-    async fn claim(&self, code: String, tenant_id: Uuid) -> Result<Option<ExchangeTokens>, FederationError> {
+    async fn claim(
+        &self,
+        code: String,
+        tenant_id: Uuid,
+    ) -> Result<Option<ExchangeTokens>, FederationError> {
         // NAMESPACING: Solo buscamos la clave bajo el namespace del tenant actual
         let key = format!("google_exchange:{}:{}", tenant_id, code);
         let mut con = self

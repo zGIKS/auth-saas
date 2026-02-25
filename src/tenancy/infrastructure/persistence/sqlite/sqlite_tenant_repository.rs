@@ -33,14 +33,14 @@ impl TenantRepository for SqliteTenantRepository {
         let auth_config = serde_json::to_value(&tenant.auth_config)
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
-        let schema_name = match &tenant.db_strategy {
-            DbStrategy::Shared { schema } => schema.clone(),
+        let database_name = match &tenant.db_strategy {
+            DbStrategy::Isolated { database } => database.clone(),
         };
 
         let tenant_model = model::ActiveModel {
             id: Set(tenant.id.value().to_string()),
             name: Set(tenant.name.value().to_string()),
-            schema_name: Set(schema_name),
+            database_name: Set(database_name),
             db_strategy: Set(db_strategy_val),
             auth_config: Set(auth_config),
             created_at: Set(tenant.created_at),
@@ -63,18 +63,24 @@ impl TenantRepository for SqliteTenantRepository {
         let auth_config = serde_json::to_value(&tenant.auth_config)
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
-        let schema_name = match &tenant.db_strategy {
-            DbStrategy::Shared { schema } => schema.clone(),
+        let database_name = match &tenant.db_strategy {
+            DbStrategy::Isolated { database } => database.clone(),
         };
 
         let result = TenantEntity::update_many()
-            .col_expr(model::Column::Name, Expr::value(tenant.name.value().to_string()))
-            .col_expr(model::Column::SchemaName, Expr::value(schema_name))
+            .col_expr(
+                model::Column::Name,
+                Expr::value(tenant.name.value().to_string()),
+            )
+            .col_expr(model::Column::DatabaseName, Expr::value(database_name))
             .col_expr(model::Column::DbStrategy, Expr::value(db_strategy_val))
             .col_expr(model::Column::AuthConfig, Expr::value(auth_config))
             .col_expr(model::Column::UpdatedAt, Expr::value(tenant.updated_at))
             .col_expr(model::Column::Active, Expr::value(tenant.active))
-            .col_expr(model::Column::AnonKeyVersion, Expr::value(tenant.anon_key_version as i32))
+            .col_expr(
+                model::Column::AnonKeyVersion,
+                Expr::value(tenant.anon_key_version as i32),
+            )
             .filter(model::Column::Id.eq(tenant.id.value().to_string()))
             .exec(&self.db)
             .await
@@ -110,6 +116,21 @@ impl TenantRepository for SqliteTenantRepository {
             Some(m) => Ok(Some(map_model_to_entity(m)?)),
             None => Ok(None),
         }
+    }
+
+    async fn find_all(&self, offset: u64, limit: u64) -> Result<Vec<Tenant>, TenantError> {
+        let models = TenantEntity::find()
+            .offset(offset)
+            .limit(limit)
+            .all(&self.db)
+            .await
+            .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
+
+        let mut tenants = Vec::with_capacity(models.len());
+        for m in models {
+            tenants.push(map_model_to_entity(m)?);
+        }
+        Ok(tenants)
     }
 
     async fn delete(&self, id: &TenantId) -> Result<(), TenantError> {

@@ -1,8 +1,8 @@
-use auth_service::shared::interfaces::rest::app_state::AppState;
-use auth_service::{ApiDoc, iam, tenancy};
+use asphanyx::shared::interfaces::rest::app_state::AppState;
+use asphanyx::{ApiDoc, iam, tenancy};
 use axum::{
     Router,
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use dotenvy::dotenv;
 use sea_orm::{ConnectionTrait, Schema};
@@ -10,9 +10,14 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
-use auth_service::shared::infrastructure::persistence::redis as redis_infra;
-use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
+use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use asphanyx::shared::infrastructure::persistence::redis as redis_infra;
+use asphanyx::shared::interfaces::rest::configuration::web_configuration::WebConfiguration;
+use asphanyx::shared::interfaces::rest::middleware::{
+    rate_limit_middleware, require_admin_panel_origin,
+};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::RwLock;
 
 #[tokio::main]
 async fn main() {
@@ -43,7 +48,7 @@ async fn main() {
     }
     std::fs::create_dir_all(&sqlite_data_dir).expect("Failed to create tenants data directory");
 
-    let connection_manager = auth_service::shared::infrastructure::persistence::sqlite::connection_manager::ConnectionManager::new(
+    let connection_manager = asphanyx::shared::infrastructure::persistence::sqlite::connection_manager::ConnectionManager::new(
         database_url.clone(),
         sqlite_data_dir,
     );
@@ -86,7 +91,10 @@ async fn main() {
         .parse()
         .expect("LOCKOUT_DURATION_SECONDS must be a number");
 
-    let frontend_url = std::env::var("FRONTEND_URL").ok();
+    let frontend_url = std::env::var("FRONTEND_URL")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
 
     let google_redirect_uri =
         std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
@@ -138,6 +146,7 @@ async fn main() {
         jwt_secret,
         swagger_enabled,
         circuit_breaker: create_circuit_breaker(),
+        tenant_db_cache: Arc::new(RwLock::new(HashMap::new())),
     };
 
     let tenant_aware_routes = Router::new()
@@ -155,13 +164,25 @@ async fn main() {
 
     let app = Router::new()
         .merge(tenant_aware_routes)
-        .route("/api/v1/admin/login", post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin))
+        .route(
+            "/api/v1/admin/login",
+            post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin)),
+        )
+        .route(
+            "/api/v1/admin/logout",
+            post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::logout_admin)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin)),
+        )
         // Public / Tenant-Agnostic Routes
         .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
         // Tenancy Routes
         .route(
             "/api/v1/tenants",
-            post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant).route_layer(
+            post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant)
+                .get(tenancy::interfaces::rest::controllers::tenant_controller::list_tenants)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
+                .route_layer(
                 axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -172,6 +193,7 @@ async fn main() {
             "/api/v1/tenants/:id",
             get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant)
                 .delete(tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -180,6 +202,7 @@ async fn main() {
         .route(
             "/api/v1/tenants/:id/oauth/google/rotate",
             post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_google_oauth_config)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -188,6 +211,7 @@ async fn main() {
         .route(
             "/api/v1/tenants/:id/jwt-signing-key/rotate",
             post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_tenant_jwt_signing_key)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -196,6 +220,16 @@ async fn main() {
         .route(
             "/api/v1/tenants/:id/anon-key/reissue",
             post(tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                )),
+        )
+        .route(
+            "/api/v1/tenants/:id/frontend-url",
+            put(tenancy::interfaces::rest::controllers::tenant_controller::update_tenant_frontend_url)
+                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
                     tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
@@ -203,6 +237,7 @@ async fn main() {
         )
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
+        .layer(WebConfiguration::cors())
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", port);

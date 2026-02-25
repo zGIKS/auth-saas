@@ -1,12 +1,14 @@
-use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
-use auth_service::shared::infrastructure::services::account_lockout::{
+use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use asphanyx::shared::infrastructure::services::account_lockout::{
     AccountLockoutService, AccountLockoutVerifier,
 };
 use redis::AsyncCommands;
+use std::fs;
 
 #[tokio::test]
 async fn test_account_lockout_logic() {
-    let client = redis::Client::open("redis://127.0.0.1/").expect("Failed to create Redis client");
+    let redis_url = resolve_redis_url();
+    let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
 
     // Cleanup previous runs
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
@@ -65,4 +67,34 @@ async fn test_account_lockout_logic() {
         .reset_failure(email, Some(attacker_ip))
         .await
         .unwrap();
+}
+
+fn resolve_redis_url() -> String {
+    if let Ok(url) = std::env::var("REDIS_URL") {
+        return url;
+    }
+
+    if let Ok(password) = std::env::var("REDIS_PASSWORD") {
+        return format!("redis://:{}@127.0.0.1:6379/", password);
+    }
+
+    if let Ok(env_file) = fs::read_to_string(".env") {
+        for line in env_file.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some((key, value)) = trimmed.split_once('=') {
+                let parsed = value.trim().trim_matches('"').to_string();
+                if key == "REDIS_URL" {
+                    return parsed;
+                }
+                if key == "REDIS_PASSWORD" {
+                    return format!("redis://:{}@127.0.0.1:6379/", parsed);
+                }
+            }
+        }
+    }
+
+    "redis://127.0.0.1/".to_string()
 }

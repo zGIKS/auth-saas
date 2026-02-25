@@ -90,6 +90,44 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 
 [[package]]
+name = "asphanyx"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "axum-extra",
+ "bcrypt",
+ "chrono",
+ "dotenvy",
+ "hex",
+ "hickory-resolver",
+ "jsonwebtoken",
+ "lazy_static",
+ "lettre",
+ "mockall",
+ "rand 0.9.2",
+ "redis",
+ "regex",
+ "reqwest",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "urlencoding",
+ "utoipa",
+ "utoipa-swagger-ui",
+ "uuid",
+ "validator",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -136,43 +174,6 @@ name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
-
-[[package]]
-name = "auth-service"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "axum",
- "axum-extra",
- "bcrypt",
- "chrono",
- "dotenvy",
- "hex",
- "hickory-resolver",
- "jsonwebtoken",
- "lazy_static",
- "lettre",
- "mockall",
- "rand 0.9.2",
- "redis",
- "regex",
- "reqwest",
- "sea-orm",
- "serde",
- "serde_json",
- "sha2",
- "thiserror 2.0.18",
- "time",
- "tokio",
- "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "utoipa",
- "utoipa-swagger-ui",
- "uuid",
- "validator",
-]
 
 [[package]]
 name = "autocfg"

@@ -1,7 +1,7 @@
-use auth_service::provisioning::domain::error::DomainError;
-use auth_service::provisioning::interfaces::acl::provisioning_facade::ProvisioningFacade;
-use auth_service::tenancy::application::command_services::tenant_command_service_impl::TenantCommandServiceImpl;
-use auth_service::tenancy::domain::{
+use asphanyx::provisioning::domain::error::DomainError;
+use asphanyx::provisioning::interfaces::acl::provisioning_facade::ProvisioningFacade;
+use asphanyx::tenancy::application::command_services::tenant_command_service_impl::TenantCommandServiceImpl;
+use asphanyx::tenancy::domain::{
     error::TenantError,
     model::{
         commands::{
@@ -34,6 +34,7 @@ mock! {
         async fn update(&self, tenant: Tenant) -> Result<Tenant, TenantError>;
         async fn find_by_id(&self, id: &TenantId) -> Result<Option<Tenant>, TenantError>;
         async fn find_by_name(&self, name: &TenantName) -> Result<Option<Tenant>, TenantError>;
+        async fn find_all(&self, offset: u64, limit: u64) -> Result<Vec<Tenant>, TenantError>;
         async fn delete(&self, id: &TenantId) -> Result<(), TenantError>;
     }
 }
@@ -44,8 +45,8 @@ mock! {
 
     #[async_trait]
     impl ProvisioningFacade for ProvisioningFacade {
-        async fn provision_tenant(&self, tenant_id: String, schema_name: String) -> Result<(), DomainError>;
-        async fn deprovision_tenant(&self, tenant_id: String, schema_name: String) -> Result<(), DomainError>;
+        async fn provision_tenant(&self, tenant_id: String, database_name: String) -> Result<(), DomainError>;
+        async fn deprovision_tenant(&self, tenant_id: String, database_name: String) -> Result<(), DomainError>;
     }
 }
 
@@ -72,12 +73,8 @@ async fn test_create_tenant_success() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
 
-    let command = CreateTenantCommand::new(
-        "test-project".to_string(),
-        None,
-        None,
-    )
-    .expect("Command should be valid");
+    let command = CreateTenantCommand::new("test-project".to_string(), None)
+        .expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
@@ -86,9 +83,9 @@ async fn test_create_tenant_success() {
 
     assert_eq!(tenant.name.value(), "test-project");
     match tenant.db_strategy {
-        DbStrategy::Shared { schema } => {
-            assert!(schema.starts_with("tenant_"));
-            assert_eq!(schema.len(), 7 + 32); // tenant_ + uuid without hyphens
+        DbStrategy::Isolated { database } => {
+            assert!(database.starts_with("tenant_"));
+            assert_eq!(database.len(), 7 + 32); // tenant_ + uuid without hyphens
         }
     }
     // Verify Key is not empty
@@ -107,8 +104,8 @@ async fn test_create_tenant_already_exists() {
         Ok(Some(Tenant::new(
             TenantId::random(),
             name.clone(),
-            DbStrategy::Shared {
-                schema: "tenant_existing_project".to_string(),
+            DbStrategy::Isolated {
+                database: "tenant_existing_project".to_string(),
             },
             AuthConfig::new(
                 "dummy_secret_also_needs_to_be_long_123456789".to_string(),
@@ -124,12 +121,8 @@ async fn test_create_tenant_already_exists() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret);
 
-    let command = CreateTenantCommand::new(
-        "existing-project".to_string(),
-        None,
-        None,
-    )
-    .expect("Command should be valid");
+    let command = CreateTenantCommand::new("existing-project".to_string(), None)
+        .expect("Command should be valid");
 
     let result = service.create_tenant(command).await;
 
@@ -145,7 +138,6 @@ async fn test_create_tenant_fails_with_invalid_name() {
     // This logic is mostly in the Command creation, but good to verify
     let result = CreateTenantCommand::new(
         "Invalid Name Here".to_string(), // Spaces not allowed
-        None,
         None,
     );
 
@@ -182,19 +174,22 @@ async fn test_security_generated_jwt_structure() {
 
     let service = TenantCommandServiceImpl::new(mock_repo, mock_provisioner, jwt_secret.clone());
 
-    let command = CreateTenantCommand::new(
-        "secure-app".to_string(),
-        None,
-        None,
-    )
-    .unwrap();
+    let command = CreateTenantCommand::new("secure-app".to_string(), None).unwrap();
 
     let (tenant, key) = service.create_tenant(command).await.unwrap();
 
     // Verify JWT Integrity
     let mut validation = Validation::new(Algorithm::HS256);
-    validation.validate_exp = true; 
-    validation.set_required_spec_claims(&["iss", "tenant_id", "role", "iat", "exp", "jti", "version"]);
+    validation.validate_exp = true;
+    validation.set_required_spec_claims(&[
+        "iss",
+        "tenant_id",
+        "role",
+        "iat",
+        "exp",
+        "jti",
+        "version",
+    ]);
 
     let decoded = decode::<TestClaims>(
         &key,
@@ -227,8 +222,8 @@ async fn test_delete_tenant_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("to-delete".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_to_delete".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_to_delete".to_string(),
         },
         AuthConfig::new(
             "secret_key_that_is_long_enough_32_chars".to_string(),
@@ -248,7 +243,7 @@ async fn test_delete_tenant_success() {
     // Expect deprovision
     mock_provisioner
         .expect_deprovision_tenant()
-        .withf(move |id, schema| id == &tenant_id.to_string() && schema == "tenant_to_delete")
+        .withf(move |id, database| id == &tenant_id.to_string() && database == "tenant_to_delete")
         .times(1)
         .returning(|_, _| Ok(()));
 
@@ -306,8 +301,8 @@ async fn test_rotate_google_oauth_config_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("rotate-google".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_rotate_google".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_rotate_google".to_string(),
         },
         AuthConfig::new(
             "tenant_old_jwt_secret_that_is_long_enough_12345".to_string(),
@@ -355,8 +350,8 @@ async fn test_rotate_tenant_jwt_signing_key_success() {
     let tenant = Tenant::new(
         TenantId::new(tenant_id),
         TenantName::new("rotate-jwt".to_string()).unwrap(),
-        DbStrategy::Shared {
-            schema: "tenant_rotate_jwt".to_string(),
+        DbStrategy::Isolated {
+            database: "tenant_rotate_jwt".to_string(),
         },
         AuthConfig::new(
             old_tenant_jwt.clone(),
@@ -379,7 +374,8 @@ async fn test_rotate_tenant_jwt_signing_key_success() {
             tenant.auth_config.jwt_secret != old_tenant_jwt
                 && tenant.auth_config.jwt_secret.len() == 128
                 && tenant.auth_config.google_client_id.as_deref() == Some("google-client-id")
-                && tenant.auth_config.google_client_secret.as_deref() == Some("google-client-secret")
+                && tenant.auth_config.google_client_secret.as_deref()
+                    == Some("google-client-secret")
         })
         .returning(Ok);
 

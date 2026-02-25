@@ -5,16 +5,16 @@ use crate::provisioning::domain::{
 #[derive(Debug, Clone)]
 pub struct DeprovisionTenantResourcesCommand {
     pub tenant_id: String,
-    pub schema_name: ResourceName,
+    pub database_name: ResourceName,
 }
 
 impl DeprovisionTenantResourcesCommand {
-    pub fn new(tenant_id: String, schema_name: String) -> Result<Self, DomainError> {
-        let schema_name_vo = ResourceName::new(schema_name)?;
+    pub fn new(tenant_id: String, database_name: String) -> Result<Self, DomainError> {
+        let database_name_vo = ResourceName::new(database_name)?;
 
         Ok(Self {
             tenant_id,
-            schema_name: schema_name_vo,
+            database_name: database_name_vo,
         })
     }
 }

@@ -2,7 +2,8 @@ use crate::tenancy::domain::{
     error::TenantError,
     model::{
         queries::{
-            get_tenant_query::GetTenantQuery, reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
+            get_tenant_query::GetTenantQuery, list_tenants_query::ListTenantsQuery,
+            reissue_tenant_anon_key_query::ReissueTenantAnonKeyQuery,
         },
         tenant::Tenant,
     },
@@ -44,6 +45,13 @@ impl<R: TenantRepository> TenantQueryServiceImpl<R> {
 impl<R: TenantRepository> TenantQueryService for TenantQueryServiceImpl<R> {
     async fn get_tenant(&self, query: GetTenantQuery) -> Result<Option<Tenant>, TenantError> {
         self.repository.find_by_id(&query.id).await
+    }
+
+    async fn handle_list_tenants(
+        &self,
+        query: ListTenantsQuery,
+    ) -> Result<Vec<Tenant>, TenantError> {
+        self.repository.find_all(query.offset, query.limit).await
     }
 
     async fn reissue_tenant_anon_key(

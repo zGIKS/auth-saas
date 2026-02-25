@@ -1,16 +1,16 @@
 /// Tests for email confirmation flow
 use super::test_mocks::*;
-use auth_service::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
-use auth_service::iam::identity::domain::error::DomainError;
-use auth_service::iam::identity::domain::model::aggregates::identity::Identity;
-use auth_service::iam::identity::domain::model::commands::confirm_registration_command::ConfirmRegistrationCommand;
-use auth_service::iam::identity::domain::model::commands::register_identity_command::RegisterIdentityCommand;
-use auth_service::iam::identity::domain::model::queries::confirm_email_query::ConfirmEmailQuery;
-use auth_service::iam::identity::domain::model::value_objects::{
+use asphanyx::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
+use asphanyx::iam::identity::domain::error::DomainError;
+use asphanyx::iam::identity::domain::model::aggregates::identity::Identity;
+use asphanyx::iam::identity::domain::model::commands::confirm_registration_command::ConfirmRegistrationCommand;
+use asphanyx::iam::identity::domain::model::commands::register_identity_command::RegisterIdentityCommand;
+use asphanyx::iam::identity::domain::model::queries::confirm_email_query::ConfirmEmailQuery;
+use asphanyx::iam::identity::domain::model::value_objects::{
     auth_provider::AuthProvider, email::Email, password::Password,
     pending_identity::PendingIdentity,
 };
-use auth_service::iam::identity::domain::services::identity_command_service::IdentityCommandService;
+use asphanyx::iam::identity::domain::services::identity_command_service::IdentityCommandService;
 use std::time::Duration;
 
 #[tokio::test]
@@ -53,6 +53,7 @@ async fn test_confirm_registration_success() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = ConfirmRegistrationCommand {
         token: token_str.to_string(),
@@ -92,6 +93,7 @@ async fn test_confirm_registration_invalid_token() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = ConfirmRegistrationCommand {
         token: token_str.to_string(),
@@ -145,6 +147,7 @@ async fn test_confirm_registration_with_query_object() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     // Create query object first (validates token)
     let query = ConfirmEmailQuery::new(token_str.clone());
@@ -220,6 +223,7 @@ async fn test_end_to_end_registration_flow() {
         ttl,
         reset_ttl,
     );
+    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     // Execute Step 1: Register
     let email = Email::new("endtoend@gmail.com".to_string()).unwrap();

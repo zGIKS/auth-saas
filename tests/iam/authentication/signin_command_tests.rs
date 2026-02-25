@@ -1,9 +1,9 @@
 /// Tests for signin command and authentication flow
 use super::test_mocks::*;
-use auth_service::iam::authentication::application::command_services::authentication_command_service_impl::AuthenticationCommandServiceImpl;
-use auth_service::iam::authentication::domain::model::commands::signin_command::SigninCommand;
-use auth_service::iam::authentication::domain::model::value_objects::{token::Token, refresh_token::RefreshToken};
-use auth_service::iam::authentication::domain::services::authentication_command_service::AuthenticationCommandService;
+use asphanyx::iam::authentication::application::command_services::authentication_command_service_impl::AuthenticationCommandServiceImpl;
+use asphanyx::iam::authentication::domain::model::commands::signin_command::SigninCommand;
+use asphanyx::iam::authentication::domain::model::value_objects::{token::Token, refresh_token::RefreshToken};
+use asphanyx::iam::authentication::domain::services::authentication_command_service::AuthenticationCommandService;
 use validator::Validate;
 use uuid::Uuid;
 use crate::iam::authentication::test_mocks::{MockAccountLockoutVerifierShim};

@@ -10,7 +10,16 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    iam::admin_identity::infrastructure::persistence::sqlite::model::Entity as AdminAccountEntity,
+    iam::admin_identity::{
+        domain::{
+            model::value_objects::admin_token_hash::AdminTokenHash,
+            repositories::admin_session_repository::AdminSessionRepository,
+        },
+        infrastructure::persistence::{
+            repositories::redis::admin_session_repository_impl::AdminSessionRepositoryImpl,
+            sqlite::model::Entity as AdminAccountEntity,
+        },
+    },
     shared::interfaces::rest::app_state::AppState,
 };
 
@@ -40,13 +49,44 @@ pub async fn require_admin_jwt(
 
     let admin_id = Uuid::parse_str(&claims.sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-    let admin_account = AdminAccountEntity::find_by_id(admin_id)
+    // 1. Verify admin existence in DB
+    let admin_account = AdminAccountEntity::find_by_id(admin_id.to_string())
         .one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     if admin_account.is_none() {
         return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    // 2. Verify token hash in Redis (Stateful session)
+    let session_repository = AdminSessionRepositoryImpl::new(
+        state.redis.clone(),
+        state.session_duration_seconds,
+        state.circuit_breaker.clone(),
+    );
+
+    let stored_hash = session_repository
+        .get_session_hash(admin_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let is_logout_path = request.uri().path().ends_with("/admin/logout");
+
+    match stored_hash {
+        Some(hash) => {
+            let current_hash = AdminTokenHash::from_token(token);
+            if hash.value() != current_hash.value() {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+        }
+        None => {
+            // No active session in Redis
+            // If it's a logout request, we allow it to proceed even if the session is already gone (idempotency)
+            if !is_logout_path {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+        }
     }
 
     Ok(next.run(request).await)

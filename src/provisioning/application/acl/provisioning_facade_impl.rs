@@ -35,9 +35,9 @@ where
     async fn provision_tenant(
         &self,
         tenant_id: String,
-        schema_name: String,
+        database_name: String,
     ) -> Result<(), DomainError> {
-        let command = ProvisionTenantResourcesCommand::new(tenant_id, schema_name)?;
+        let command = ProvisionTenantResourcesCommand::new(tenant_id, database_name)?;
         self.command_service
             .provision_tenant_resources(command)
             .await?;
@@ -47,9 +47,9 @@ where
     async fn deprovision_tenant(
         &self,
         tenant_id: String,
-        schema_name: String,
+        database_name: String,
     ) -> Result<(), DomainError> {
-        let command = DeprovisionTenantResourcesCommand::new(tenant_id, schema_name)?;
+        let command = DeprovisionTenantResourcesCommand::new(tenant_id, database_name)?;
         self.command_service
             .deprovision_tenant_resources(command)
             .await?;

@@ -21,8 +21,8 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
 
 1. Clona el repositorio:
    ```bash
-   git clone <repository-url> auth-service
-   cd auth-service
+   git clone <repository-url> asphanyx
+   cd asphanyx
    ```
 2. Ajusta `.env` con las variables obligatorias (ejemplo mínimo en `.env`).
 3. Compila y ejecuta:
@@ -63,7 +63,8 @@ Variables imprescindibles (usa `.env`):
 - `DATABASE_URL`, `REDIS_URL`: conexiones a Postgres y Redis.
 - `JWT_SECRET`, `SESSION_DURATION_SECONDS`, `REFRESH_TOKEN_DURATION_SECONDS`: seguridad de tokens.
 - `SWAGGER_ENABLED` (opcional): habilita o deshabilita Swagger en runtime.
-- `FRONTEND_URL`, `GOOGLE_REDIRECT_URI`: rutas de callback y referencia para correos.
+- `GOOGLE_REDIRECT_URI`: callback de Google OAuth en backend.
+- `frontend_url` por tenant (en BD): destino de redirecciones OAuth y enlaces de correo.
 - `SMTP_*`: servidor SMTP para correos transaccionales.
 - `LOCKOUT_THRESHOLD`, `LOCKOUT_DURATION_SECONDS`: control de bloqueo por intentos fallidos.
 
@@ -81,6 +82,26 @@ Variables imprescindibles (usa `.env`):
   ```bash
   cargo run --bin admin_identity_recover_cli
   ```
+
+### Crear o recuperar admin desde Docker
+
+1. Construye/actualiza imagen:
+   ```bash
+   docker compose build app
+   ```
+2. Crear admin inicial (solo primera vez):
+   ```bash
+   docker compose run --rm --entrypoint /usr/local/bin/admin_identity_bootstrap_cli app
+   ```
+3. Recuperar acceso admin (si ya existe admin y quieres rotar credenciales):
+   ```bash
+   docker compose run --rm --entrypoint /usr/local/bin/admin_identity_recover_cli app
+   ```
+
+Ambos comandos imprimen en consola:
+
+- `username=<valor>`
+- `password=<valor>`
 
 Consulta `.env` para un set completo de ejemplo local.
 
