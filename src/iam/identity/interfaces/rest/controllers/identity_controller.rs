@@ -33,7 +33,7 @@ use crate::iam::identity::interfaces::rest::resources::request_password_reset_re
 use crate::iam::identity::interfaces::rest::resources::reset_password_resource::{
     ResetPasswordRequest, ResetPasswordResponse
 };
-use crate::iam::identity::infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl;
+use crate::iam::identity::infrastructure::persistence::sqlite::repositories::identity_repository_impl::IdentityRepositoryImpl;
 use crate::iam::identity::infrastructure::persistence::redis::pending_identity_repository_impl::PendingIdentityRepositoryImpl;
 use crate::iam::identity::infrastructure::persistence::redis::password_reset_token_repository_impl::PasswordResetTokenRepositoryImpl;
 use crate::iam::authentication::infrastructure::persistence::redis::redis_session_repository::RedisSessionRepository;

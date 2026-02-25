@@ -30,14 +30,14 @@ use crate::iam::federation::{
         claim_token_resource::{ClaimTokenRequest, ClaimTokenResponse},
     },
 };
-use crate::iam::identity::infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl;
+use crate::iam::identity::infrastructure::persistence::sqlite::repositories::identity_repository_impl::IdentityRepositoryImpl;
 use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
 use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use crate::tenancy::domain::{
     model::value_objects::{db_strategy::DbStrategy, tenant_id::TenantId},
     repositories::tenant_repository::TenantRepository,
 };
-use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use crate::tenancy::infrastructure::persistence::sqlite::sqlite_tenant_repository::SqliteTenantRepository;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StateClaims {
@@ -183,7 +183,7 @@ pub async fn google_callback(
 
     // 2. Load Tenant
     let tenant_id = TenantId::new(token_data.claims.tenant_id);
-    let tenant_repo = PostgresTenantRepository::new(state.db.clone());
+    let tenant_repo = SqliteTenantRepository::new(state.db.clone());
 
     let tenant = match tenant_repo.find_by_id(&tenant_id).await {
         Ok(Some(t)) => t,

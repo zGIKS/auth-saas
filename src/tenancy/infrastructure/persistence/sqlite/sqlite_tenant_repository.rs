@@ -13,19 +13,20 @@ use crate::tenancy::domain::{
 use async_trait::async_trait;
 use sea_orm::*;
 use sea_query::Expr;
+use uuid::Uuid;
 
-pub struct PostgresTenantRepository {
+pub struct SqliteTenantRepository {
     db: DatabaseConnection,
 }
 
-impl PostgresTenantRepository {
+impl SqliteTenantRepository {
     pub fn new(db: DatabaseConnection) -> Self {
         Self { db }
     }
 }
 
 #[async_trait]
-impl TenantRepository for PostgresTenantRepository {
+impl TenantRepository for SqliteTenantRepository {
     async fn save(&self, tenant: Tenant) -> Result<Tenant, TenantError> {
         let db_strategy_val = serde_json::to_value(&tenant.db_strategy)
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
@@ -37,7 +38,7 @@ impl TenantRepository for PostgresTenantRepository {
         };
 
         let tenant_model = model::ActiveModel {
-            id: Set(tenant.id.value()),
+            id: Set(tenant.id.value().to_string()),
             name: Set(tenant.name.value().to_string()),
             database_name: Set(database_name),
             db_strategy: Set(db_strategy_val),
@@ -48,15 +49,11 @@ impl TenantRepository for PostgresTenantRepository {
             anon_key_version: Set(tenant.anon_key_version as i32),
         };
 
-        // Upsert logic (simplificada para este ejemplo, idealmente usar on_conflict)
-        // Por simplicidad, aquí asumimos insert, para update real se requiere más lógica de chequeo
         TenantEntity::insert(tenant_model)
             .exec(&self.db)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
 
-        // Devolvemos el tenant tal cual entró porque asumimos éxito.
-        // En prod, re-hidrataríamos desde la respuesta DB si hay campos autogenerados (no es el caso aquí excepto timestamps si fuera DB side)
         Ok(tenant)
     }
 
@@ -84,7 +81,7 @@ impl TenantRepository for PostgresTenantRepository {
                 model::Column::AnonKeyVersion,
                 Expr::value(tenant.anon_key_version as i32),
             )
-            .filter(model::Column::Id.eq(tenant.id.value()))
+            .filter(model::Column::Id.eq(tenant.id.value().to_string()))
             .exec(&self.db)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
@@ -97,7 +94,7 @@ impl TenantRepository for PostgresTenantRepository {
     }
 
     async fn find_by_id(&self, id: &TenantId) -> Result<Option<Tenant>, TenantError> {
-        let model = TenantEntity::find_by_id(id.value())
+        let model = TenantEntity::find_by_id(id.value().to_string())
             .one(&self.db)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
@@ -137,7 +134,7 @@ impl TenantRepository for PostgresTenantRepository {
     }
 
     async fn delete(&self, id: &TenantId) -> Result<(), TenantError> {
-        TenantEntity::delete_by_id(id.value())
+        TenantEntity::delete_by_id(id.value().to_string())
             .exec(&self.db)
             .await
             .map_err(|e| TenantError::InfrastructureError(e.to_string()))?;
@@ -153,7 +150,10 @@ fn map_model_to_entity(model: model::Model) -> Result<Tenant, TenantError> {
         .map_err(|_| TenantError::InfrastructureError("Failed to parse auth_config".to_string()))?;
 
     Ok(Tenant {
-        id: TenantId::new(model.id),
+        id: TenantId::new(
+            Uuid::parse_str(&model.id)
+                .map_err(|e| TenantError::InfrastructureError(format!("Invalid tenant UUID in DB: {e}")))?,
+        ),
         name,
         db_strategy,
         auth_config,

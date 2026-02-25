@@ -2,7 +2,7 @@ use crate::shared::interfaces::rest::app_state::AppState;
 use crate::tenancy::domain::model::tenant::Tenant;
 use crate::tenancy::domain::model::value_objects::tenant_id::TenantId;
 use crate::tenancy::domain::repositories::tenant_repository::TenantRepository;
-use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use crate::tenancy::infrastructure::persistence::sqlite::sqlite_tenant_repository::SqliteTenantRepository;
 use axum::{
     extract::{Request, State},
     http::{HeaderMap, Method, StatusCode},
@@ -88,7 +88,7 @@ pub async fn tenant_resolver(
     };
 
     // 3. Resolve Tenant from Database
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
 
     let tenant = repository
         .find_by_id(&tenant_id)

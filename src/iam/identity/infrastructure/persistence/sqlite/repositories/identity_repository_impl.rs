@@ -7,13 +7,14 @@ use crate::iam::identity::domain::{
     },
     repositories::identity_repository::IdentityRepository,
 };
-use crate::iam::identity::infrastructure::persistence::postgres::model::{
+use crate::iam::identity::infrastructure::persistence::sqlite::model::{
     ActiveModel, Column, Entity as IdentityEntity,
 };
 use crate::shared::domain::model::entities::auditable_model::AuditableModel;
 use sea_orm::*;
 use std::error::Error;
 use std::str::FromStr;
+use uuid::Uuid;
 
 pub struct IdentityRepositoryImpl {
     db: DatabaseConnection,
@@ -67,12 +68,14 @@ impl IdentityRepository for IdentityRepositoryImpl {
                     .map_err(Box::<dyn Error + Send + Sync>::from)?;
 
                 let audit = AuditableModel {
-                    created_at: m.created_at.into(),
-                    updated_at: m.updated_at.into(),
+                    created_at: m.created_at,
+                    updated_at: m.updated_at,
                 };
 
+                let id = Uuid::parse_str(&m.id).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+
                 Ok(Some(DomainIdentity::new(
-                    IdentityId::from_uuid(m.id),
+                    IdentityId::from_uuid(id),
                     email,
                     Password::new(m.password_hash).map_err(Box::<dyn Error + Send + Sync>::from)?,
                     provider,
@@ -87,12 +90,12 @@ impl IdentityRepository for IdentityRepositoryImpl {
 impl IdentityRepositoryImpl {
     fn build_active_model(identity: &DomainIdentity) -> ActiveModel {
         ActiveModel {
-            id: Set(identity.id().value()),
+            id: Set(identity.id().value().to_string()),
             email: Set(identity.email().value().to_string()),
             password_hash: Set(identity.password().value().to_string()),
             auth_provider: Set(identity.provider().to_string()),
-            created_at: Set(identity.audit().created_at.into()),
-            updated_at: Set(identity.audit().updated_at.into()),
+            created_at: Set(identity.audit().created_at),
+            updated_at: Set(identity.audit().updated_at),
         }
     }
 }

@@ -16,8 +16,8 @@ use crate::{
             repositories::admin_session_repository::AdminSessionRepository,
         },
         infrastructure::persistence::{
-            postgres::model::Entity as AdminAccountEntity,
             repositories::redis::admin_session_repository_impl::AdminSessionRepositoryImpl,
+            sqlite::model::Entity as AdminAccountEntity,
         },
     },
     shared::interfaces::rest::app_state::AppState,
@@ -50,7 +50,7 @@ pub async fn require_admin_jwt(
     let admin_id = Uuid::parse_str(&claims.sub).map_err(|_| StatusCode::UNAUTHORIZED)?;
 
     // 1. Verify admin existence in DB
-    let admin_account = AdminAccountEntity::find_by_id(admin_id)
+    let admin_account = AdminAccountEntity::find_by_id(admin_id.to_string())
         .one(&state.db)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

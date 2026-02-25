@@ -15,7 +15,7 @@ Este repositorio contiene el backend del servicio de autenticación y autorizaci
 
 - Rust 1.70+
 - Cargo
-- PostgreSQL y Redis accesibles con las URLs definidas en `.env`
+- SQLite y Redis accesibles con las URLs definidas en `.env`
 
 ## Instalación y ejecución
 

@@ -25,7 +25,7 @@ use crate::iam::authentication::{
 };
 use crate::iam::identity::{
     application::acl::identity_facade_impl::IdentityFacadeImpl,
-    infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl,
+    infrastructure::persistence::sqlite::repositories::identity_repository_impl::IdentityRepositoryImpl,
 };
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutService;
 use crate::shared::interfaces::rest::app_state::AppState;

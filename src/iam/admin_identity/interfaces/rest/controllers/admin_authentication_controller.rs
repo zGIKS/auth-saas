@@ -31,9 +31,9 @@ use crate::{
                 },
             },
             infrastructure::persistence::repositories::{
-                postgres::admin_account_repository_impl::AdminAccountRepositoryImpl,
                 redis::admin_session_repository_impl::AdminSessionRepositoryImpl,
             },
+            infrastructure::persistence::sqlite::repositories::admin_account_repository_impl::AdminAccountRepositoryImpl,
             interfaces::rest::resources::{
                 admin_login_resource::{AdminLoginRequest, AdminLoginResponse},
                 admin_logout_resource::AdminLogoutRequest,

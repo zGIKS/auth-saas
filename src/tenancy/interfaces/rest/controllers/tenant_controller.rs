@@ -14,7 +14,7 @@ use crate::provisioning::{
         acl::provisioning_facade_impl::ProvisioningFacadeImpl,
         command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl,
     },
-    infrastructure::persistence::postgres::postgres_schema_provisioner::PostgresSchemaProvisioner,
+    infrastructure::persistence::sqlite::sqlite_database_provisioner::SqliteDatabaseProvisioner,
 };
 use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
 use crate::tenancy::application::{
@@ -37,7 +37,7 @@ use crate::tenancy::domain::{
         tenant_command_service::TenantCommandService, tenant_query_service::TenantQueryService,
     },
 };
-use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use crate::tenancy::infrastructure::persistence::sqlite::sqlite_tenant_repository::SqliteTenantRepository;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     reissue_tenant_anon_key_resource::ReissueTenantAnonKeyResponse,
@@ -92,7 +92,7 @@ pub async fn list_tenants(
         Err(e) => return (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
     };
 
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.handle_list_tenants(query).await {
@@ -159,11 +159,11 @@ pub async fn create_tenant(
     };
 
     // Initialize Provisioning BC components
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
 
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
 
     // Inject Facade into TenantCommandService
     let service =
@@ -200,7 +200,7 @@ pub async fn create_tenant(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 204, description = "Tenant deleted"),
@@ -211,16 +211,20 @@ pub async fn create_tenant(
 )]
 pub async fn delete_tenant(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let command = DeleteTenantCommand::new(id);
 
     // Initialize Provisioning BC components
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
 
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service =
         TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
@@ -244,7 +248,7 @@ pub async fn delete_tenant(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 200, description = "Tenant found", body = TenantResource),
@@ -253,9 +257,13 @@ pub async fn delete_tenant(
         (status = 500, description = "Internal Server Error")
     )
 )]
-pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub async fn get_tenant(State(state): State<AppState>, Path(id_str): Path<String>) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let query = GetTenantQuery::new(id);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.get_tenant(query).await {
@@ -304,7 +312,7 @@ pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> 
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     request_body = RotateGoogleOauthConfigRequest,
     responses(
@@ -317,9 +325,13 @@ pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> 
 )]
 pub async fn rotate_google_oauth_config(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
     Json(payload): Json<RotateGoogleOauthConfigRequest>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     if let Err(e) = payload.validate() {
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
@@ -337,10 +349,10 @@ pub async fn rotate_google_oauth_config(
         }
     };
 
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service =
         TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
@@ -373,7 +385,7 @@ pub async fn rotate_google_oauth_config(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 200, description = "Tenant JWT signing key rotated successfully", body = RotateTenantJwtSigningKeyResponse),
@@ -384,14 +396,18 @@ pub async fn rotate_google_oauth_config(
 )]
 pub async fn rotate_tenant_jwt_signing_key(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let command = RotateTenantJwtSigningKeyCommand::new(id);
 
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service =
         TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
@@ -452,10 +468,11 @@ pub async fn update_tenant_frontend_url(
         }
     };
 
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner =
+        SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service =
         TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
@@ -489,7 +506,7 @@ pub async fn update_tenant_frontend_url(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 200, description = "Tenant anon key reissued successfully", body = ReissueTenantAnonKeyResponse),
@@ -500,10 +517,14 @@ pub async fn update_tenant_frontend_url(
 )]
 pub async fn reissue_tenant_anon_key(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let query = ReissueTenantAnonKeyQuery::new(id);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.reissue_tenant_anon_key(query).await {

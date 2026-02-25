@@ -1,16 +1,16 @@
 use std::{collections::HashMap, sync::Arc};
 
 use redis::Client;
-use sea_orm::{Database, DatabaseConnection, DbErr};
+use sea_orm::{DatabaseConnection, DbErr};
 use tokio::sync::RwLock;
-use url::Url;
 
 use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
+use crate::shared::infrastructure::persistence::sqlite::connection_manager::ConnectionManager;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: DatabaseConnection,
-    pub base_database_url: String,
+    pub connection_manager: ConnectionManager,
+    pub db: DatabaseConnection, // Keeping this as the main DB connection for convenience
     pub redis: redis::Client,
     pub session_duration_seconds: u64,
     pub refresh_token_duration_seconds: u64,
@@ -38,8 +38,7 @@ impl AppState {
             }
         }
 
-        let connection_string = with_database_name(&self.base_database_url, database_name)?;
-        let new_connection = Database::connect(&connection_string).await?;
+        let new_connection = self.connection_manager.get_tenant_connection(database_name).await?;
 
         let mut cache = self.tenant_db_cache.write().await;
         if let Some(connection) = cache.get(database_name) {
@@ -49,14 +48,6 @@ impl AppState {
         cache.insert(database_name.to_string(), new_connection.clone());
         Ok(new_connection)
     }
-}
-
-fn with_database_name(base_connection_string: &str, database_name: &str) -> Result<String, DbErr> {
-    let mut parsed = Url::parse(base_connection_string)
-        .map_err(|e| DbErr::Custom(format!("Invalid DATABASE_URL: {}", e)))?;
-
-    parsed.set_path(&format!("/{}", database_name));
-    Ok(parsed.to_string())
 }
 
 impl axum::extract::FromRef<AppState> for DatabaseConnection {
