@@ -56,7 +56,7 @@ async fn recover_admin_access() -> Result<(), String> {
 
     if admin_count == 0 {
         let new_admin = ActiveModel {
-            id: Set(Uuid::new_v4()),
+            id: Set(Uuid::new_v4().to_string()),
             username: Set(username_hash.clone()),
             password_hash: Set(password_hash),
             created_at: Set(now),

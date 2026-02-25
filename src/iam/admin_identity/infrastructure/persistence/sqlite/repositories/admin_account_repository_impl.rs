@@ -17,6 +17,7 @@ use crate::iam::admin_identity::{
 use crate::shared::domain::model::entities::auditable_model::AuditableModel;
 use async_trait::async_trait;
 use sea_orm::*;
+use uuid::Uuid;
 
 pub struct AdminAccountRepositoryImpl {
     db: DatabaseConnection,
@@ -32,7 +33,7 @@ impl AdminAccountRepositoryImpl {
 impl AdminAccountRepository for AdminAccountRepositoryImpl {
     async fn save(&self, admin_account: AdminAccount) -> Result<AdminAccount, AdminIdentityError> {
         let active_model = ActiveModel {
-            id: Set(admin_account.id().value()),
+            id: Set(admin_account.id().value().to_string()),
             username: Set(admin_account.username().value().to_string()),
             password_hash: Set(admin_account.password_hash().value().to_string()),
             created_at: Set(admin_account.audit().created_at),
@@ -59,8 +60,10 @@ impl AdminAccountRepository for AdminAccountRepositoryImpl {
 
         match model {
             Some(m) => {
+                let id = Uuid::parse_str(&m.id)
+                    .map_err(|e| AdminIdentityError::InternalError(e.to_string()))?;
                 let admin_account = AdminAccount::restore(
-                    AdminAccountId::from_uuid(m.id),
+                    AdminAccountId::from_uuid(id),
                     AdminUsername::from_hashed(m.username)?,
                     AdminPasswordHash::new(m.password_hash)?,
                     AuditableModel {

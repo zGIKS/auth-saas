@@ -132,7 +132,7 @@ pub async fn create_tenant(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 204, description = "Tenant deleted"),
@@ -143,8 +143,12 @@ pub async fn create_tenant(
 )]
 pub async fn delete_tenant(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let command = DeleteTenantCommand::new(id);
 
     // Initialize Provisioning BC components
@@ -176,7 +180,7 @@ pub async fn delete_tenant(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 200, description = "Tenant found", body = TenantResource),
@@ -185,7 +189,11 @@ pub async fn delete_tenant(
         (status = 500, description = "Internal Server Error")
     )
 )]
-pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
+pub async fn get_tenant(State(state): State<AppState>, Path(id_str): Path<String>) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let query = GetTenantQuery::new(id);
     let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
@@ -236,7 +244,7 @@ pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> 
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     request_body = RotateGoogleOauthConfigRequest,
     responses(
@@ -249,9 +257,13 @@ pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> 
 )]
 pub async fn rotate_google_oauth_config(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
     Json(payload): Json<RotateGoogleOauthConfigRequest>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     if let Err(e) = payload.validate() {
         return (StatusCode::BAD_REQUEST, format!("Validation error: {}", e)).into_response();
     }
@@ -304,7 +316,7 @@ pub async fn rotate_google_oauth_config(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 200, description = "Tenant JWT signing key rotated successfully", body = RotateTenantJwtSigningKeyResponse),
@@ -315,8 +327,12 @@ pub async fn rotate_google_oauth_config(
 )]
 pub async fn rotate_tenant_jwt_signing_key(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let command = RotateTenantJwtSigningKeyCommand::new(id);
 
     let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
@@ -351,7 +367,7 @@ pub async fn rotate_tenant_jwt_signing_key(
     tag = "tenancy",
     security(("admin_bearer" = [])),
     params(
-        ("id" = Uuid, Path, description = "Tenant ID")
+        ("id" = String, Path, description = "Tenant ID")
     ),
     responses(
         (status = 200, description = "Tenant anon key reissued successfully", body = ReissueTenantAnonKeyResponse),
@@ -362,8 +378,12 @@ pub async fn rotate_tenant_jwt_signing_key(
 )]
 pub async fn reissue_tenant_anon_key(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id_str): Path<String>,
 ) -> impl IntoResponse {
+    let id = match Uuid::parse_str(&id_str) {
+        Ok(u) => u,
+        Err(_) => return ErrorResponse::new("Invalid UUID format").with_code(400).into_response(),
+    };
     let query = ReissueTenantAnonKeyQuery::new(id);
     let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());

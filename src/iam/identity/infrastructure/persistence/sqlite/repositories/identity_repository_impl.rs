@@ -14,6 +14,7 @@ use crate::shared::domain::model::entities::auditable_model::AuditableModel;
 use sea_orm::*;
 use std::error::Error;
 use std::str::FromStr;
+use uuid::Uuid;
 
 pub struct IdentityRepositoryImpl {
     db: DatabaseConnection,
@@ -65,6 +66,7 @@ impl IdentityRepository for IdentityRepositoryImpl {
                     Email::new(m.email).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
                 let provider = AuthProvider::from_str(&m.auth_provider)
                     .map_err(Box::<dyn Error + Send + Sync>::from)?;
+                let id = Uuid::parse_str(&m.id).map_err(Box::<dyn Error + Send + Sync>::from)?;
 
                 let audit = AuditableModel {
                     created_at: m.created_at,
@@ -72,7 +74,7 @@ impl IdentityRepository for IdentityRepositoryImpl {
                 };
 
                 Ok(Some(DomainIdentity::new(
-                    IdentityId::from_uuid(m.id),
+                    IdentityId::from_uuid(id),
                     email,
                     Password::new(m.password_hash).map_err(Box::<dyn Error + Send + Sync>::from)?,
                     provider,
@@ -87,7 +89,7 @@ impl IdentityRepository for IdentityRepositoryImpl {
 impl IdentityRepositoryImpl {
     fn build_active_model(identity: &DomainIdentity) -> ActiveModel {
         ActiveModel {
-            id: Set(identity.id().value()),
+            id: Set(identity.id().value().to_string()),
             email: Set(identity.email().value().to_string()),
             password_hash: Set(identity.password().value().to_string()),
             auth_provider: Set(identity.provider().to_string()),
