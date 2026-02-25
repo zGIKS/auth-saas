@@ -7,7 +7,7 @@ use dotenvy::dotenv;
 use rand::RngCore;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, EntityTrait, PaginatorTrait,
-    QueryFilter, Schema, Set,
+    QueryFilter, Schema, Set, DbErr,
 };
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -27,7 +27,7 @@ async fn recover_admin_access() -> Result<(), String> {
 
     let database = Database::connect(&database_url)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error: DbErr| error.to_string())?;
 
     let builder = database.get_database_backend();
     let schema = Schema::new(builder);
@@ -37,12 +37,12 @@ async fn recover_admin_access() -> Result<(), String> {
     database
         .execute(stmt_admin_accounts)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error: DbErr| error.to_string())?;
 
     let admin_count = AdminAccountEntity::find()
         .count(&database)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error: DbErr| error.to_string())?;
 
     if admin_count > 1 {
         return Err("multiple admin accounts found; manual cleanup required".to_string());
@@ -66,13 +66,13 @@ async fn recover_admin_access() -> Result<(), String> {
         new_admin
             .insert(&database)
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error: DbErr| error.to_string())?;
     } else {
         let existing_admin = AdminAccountEntity::find()
             .filter(Column::Id.is_not_null())
             .one(&database)
             .await
-            .map_err(|error| error.to_string())?
+            .map_err(|error: DbErr| error.to_string())?
             .ok_or("expected admin account but none found")?;
 
         let updated_admin = ActiveModel {
@@ -86,7 +86,7 @@ async fn recover_admin_access() -> Result<(), String> {
         updated_admin
             .update(&database)
             .await
-            .map_err(|error| error.to_string())?;
+            .map_err(|error: DbErr| error.to_string())?;
     }
 
     println!("username={username}");

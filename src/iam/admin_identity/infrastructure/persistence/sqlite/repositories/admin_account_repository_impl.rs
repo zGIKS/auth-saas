@@ -60,8 +60,7 @@ impl AdminAccountRepository for AdminAccountRepositoryImpl {
 
         match model {
             Some(m) => {
-                let id = Uuid::parse_str(&m.id)
-                    .map_err(|e| AdminIdentityError::InternalError(e.to_string()))?;
+                let id = Uuid::parse_str(&m.id).map_err(|e| AdminIdentityError::InternalError(e.to_string()))?;
                 let admin_account = AdminAccount::restore(
                     AdminAccountId::from_uuid(id),
                     AdminUsername::from_hashed(m.username)?,

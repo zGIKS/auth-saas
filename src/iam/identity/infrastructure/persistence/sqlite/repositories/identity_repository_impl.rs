@@ -66,12 +66,13 @@ impl IdentityRepository for IdentityRepositoryImpl {
                     Email::new(m.email).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
                 let provider = AuthProvider::from_str(&m.auth_provider)
                     .map_err(Box::<dyn Error + Send + Sync>::from)?;
-                let id = Uuid::parse_str(&m.id).map_err(Box::<dyn Error + Send + Sync>::from)?;
 
                 let audit = AuditableModel {
                     created_at: m.created_at,
                     updated_at: m.updated_at,
                 };
+
+                let id = Uuid::parse_str(&m.id).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
 
                 Ok(Some(DomainIdentity::new(
                     IdentityId::from_uuid(id),
