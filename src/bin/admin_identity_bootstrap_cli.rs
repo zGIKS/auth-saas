@@ -8,9 +8,9 @@ use auth_service::iam::{
             model::commands::create_initial_admin_command::CreateInitialAdminCommand,
             services::admin_identity_command_service::AdminIdentityCommandService,
         },
-        infrastructure::persistence::{
-            postgres::model::Entity as AdminAccountEntity,
-            repositories::postgres::admin_account_repository_impl::AdminAccountRepositoryImpl,
+        infrastructure::persistence::sqlite::{
+            model::Entity as AdminAccountEntity,
+            repositories::admin_account_repository_impl::AdminAccountRepositoryImpl,
         },
     },
     authentication::infrastructure::services::jwt_token_service::JwtTokenService,

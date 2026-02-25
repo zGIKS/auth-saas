@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use dotenvy::dotenv;
-use sea_orm::{ConnectionTrait, Database, Schema};
+use sea_orm::{ConnectionTrait, Schema};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -32,9 +32,25 @@ async fn main() {
         .expect("PORT must be a valid number");
 
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let db = Database::connect(&database_url)
+    let sqlite_data_dir = std::env::var("SQLITE_DATA_DIR").unwrap_or_else(|_| "data/tenants".to_string());
+    
+    // Automatically create database directories
+    if let Some(parent) = database_url
+        .strip_prefix("sqlite://")
+        .and_then(|path| std::path::Path::new(path).parent())
+    {
+        std::fs::create_dir_all(parent).expect("Failed to create database directory");
+    }
+    std::fs::create_dir_all(&sqlite_data_dir).expect("Failed to create tenants data directory");
+
+    let connection_manager = auth_service::shared::infrastructure::persistence::sqlite::connection_manager::ConnectionManager::new(
+        database_url.clone(),
+        sqlite_data_dir,
+    );
+
+    let db = connection_manager.get_main_connection()
         .await
-        .expect("Failed to connect to DB");
+        .expect("Failed to connect to Main DB");
 
     let redis_client = redis_infra::connect()
         .await
@@ -89,27 +105,27 @@ async fn main() {
 
     // Create Tenant table in public schema (global metadata)
     let mut create_tenant_table_op = schema
-        .create_table_from_entity(tenancy::infrastructure::persistence::postgres::model::Entity);
+        .create_table_from_entity(tenancy::infrastructure::persistence::sqlite::model::Entity);
     let stmt_tenant = builder.build(create_tenant_table_op.if_not_exists());
 
     match db.execute(stmt_tenant).await {
-        Ok(_) => tracing::info!("Table 'tenants' initialized in public schema"),
+        Ok(_) => tracing::info!("Table 'tenants' initialized"),
         Err(e) => tracing::error!("Error creating 'tenants' table: {}", e),
     }
 
     let mut create_admin_accounts_table_op = schema.create_table_from_entity(
-        iam::admin_identity::infrastructure::persistence::postgres::model::Entity,
+        iam::admin_identity::infrastructure::persistence::sqlite::model::Entity,
     );
     let stmt_admin_accounts = builder.build(create_admin_accounts_table_op.if_not_exists());
 
     match db.execute(stmt_admin_accounts).await {
-        Ok(_) => tracing::info!("Table 'admin_accounts' initialized in public schema"),
+        Ok(_) => tracing::info!("Table 'admin_accounts' initialized"),
         Err(e) => tracing::error!("Error creating 'admin_accounts' table: {}", e),
     }
 
     let state = AppState {
+        connection_manager,
         db,
-        base_database_url: database_url,
         redis: redis_client,
         session_duration_seconds,
         refresh_token_duration_seconds,

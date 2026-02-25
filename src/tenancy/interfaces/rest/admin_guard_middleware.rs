@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::{
-    iam::admin_identity::infrastructure::persistence::postgres::model::Entity as AdminAccountEntity,
+    iam::admin_identity::infrastructure::persistence::sqlite::model::Entity as AdminAccountEntity,
     shared::interfaces::rest::app_state::AppState,
 };
 

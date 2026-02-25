@@ -14,7 +14,7 @@ use crate::provisioning::{
         acl::provisioning_facade_impl::ProvisioningFacadeImpl,
         command_services::provisioning_command_service_impl::ProvisioningCommandServiceImpl,
     },
-    infrastructure::persistence::postgres::postgres_schema_provisioner::PostgresSchemaProvisioner,
+    infrastructure::persistence::sqlite::sqlite_database_provisioner::SqliteDatabaseProvisioner,
 };
 use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
 use crate::tenancy::application::{
@@ -35,7 +35,7 @@ use crate::tenancy::domain::{
         tenant_command_service::TenantCommandService, tenant_query_service::TenantQueryService,
     },
 };
-use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
+use crate::tenancy::infrastructure::persistence::sqlite::sqlite_tenant_repository::SqliteTenantRepository;
 use crate::tenancy::interfaces::rest::resources::{
     create_tenant_resource::{CreateTenantRequest, CreateTenantResponse},
     reissue_tenant_anon_key_resource::ReissueTenantAnonKeyResponse,
@@ -91,11 +91,11 @@ pub async fn create_tenant(
     };
 
     // Initialize Provisioning BC components
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
 
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
 
     // Inject Facade into TenantCommandService
     let service =
@@ -148,11 +148,11 @@ pub async fn delete_tenant(
     let command = DeleteTenantCommand::new(id);
 
     // Initialize Provisioning BC components
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
 
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service =
         TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
@@ -187,7 +187,7 @@ pub async fn delete_tenant(
 )]
 pub async fn get_tenant(State(state): State<AppState>, Path(id): Path<Uuid>) -> impl IntoResponse {
     let query = GetTenantQuery::new(id);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.get_tenant(query).await {
@@ -269,10 +269,10 @@ pub async fn rotate_google_oauth_config(
         }
     };
 
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.rotate_google_oauth_config(command).await {
@@ -319,10 +319,10 @@ pub async fn rotate_tenant_jwt_signing_key(
 ) -> impl IntoResponse {
     let command = RotateTenantJwtSigningKeyCommand::new(id);
 
-    let provisioner = PostgresSchemaProvisioner::new(state.base_database_url.clone());
+    let provisioner = SqliteDatabaseProvisioner::new(state.connection_manager.get_data_dir().to_string());
     let provisioning_service = ProvisioningCommandServiceImpl::new(provisioner);
     let provisioning_facade = ProvisioningFacadeImpl::new(provisioning_service);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantCommandServiceImpl::new(repository, provisioning_facade, state.jwt_secret.clone());
 
     match service.rotate_tenant_jwt_signing_key(command).await {
@@ -365,7 +365,7 @@ pub async fn reissue_tenant_anon_key(
     Path(id): Path<Uuid>,
 ) -> impl IntoResponse {
     let query = ReissueTenantAnonKeyQuery::new(id);
-    let repository = PostgresTenantRepository::new(state.db.clone());
+    let repository = SqliteTenantRepository::new(state.db.clone());
     let service = TenantQueryServiceImpl::new(repository, state.jwt_secret.clone());
 
     match service.reissue_tenant_anon_key(query).await {

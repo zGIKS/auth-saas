@@ -7,7 +7,7 @@ use crate::iam::identity::domain::{
     },
     repositories::identity_repository::IdentityRepository,
 };
-use crate::iam::identity::infrastructure::persistence::postgres::model::{
+use crate::iam::identity::infrastructure::persistence::sqlite::model::{
     ActiveModel, Column, Entity as IdentityEntity,
 };
 use crate::shared::domain::model::entities::auditable_model::AuditableModel;
@@ -67,8 +67,8 @@ impl IdentityRepository for IdentityRepositoryImpl {
                     .map_err(Box::<dyn Error + Send + Sync>::from)?;
 
                 let audit = AuditableModel {
-                    created_at: m.created_at.into(),
-                    updated_at: m.updated_at.into(),
+                    created_at: m.created_at,
+                    updated_at: m.updated_at,
                 };
 
                 Ok(Some(DomainIdentity::new(
@@ -91,8 +91,8 @@ impl IdentityRepositoryImpl {
             email: Set(identity.email().value().to_string()),
             password_hash: Set(identity.password().value().to_string()),
             auth_provider: Set(identity.provider().to_string()),
-            created_at: Set(identity.audit().created_at.into()),
-            updated_at: Set(identity.audit().updated_at.into()),
+            created_at: Set(identity.audit().created_at),
+            updated_at: Set(identity.audit().updated_at),
         }
     }
 }

@@ -1,7 +1,7 @@
 use sea_orm::{ConnectionTrait, Database, DatabaseBackend, Schema, Statement};
 use std::time::Duration;
 
-use crate::iam::identity::infrastructure::persistence::postgres::model::Entity as IdentityEntity;
+use crate::iam::identity::infrastructure::persistence::sqlite::model::Entity as IdentityEntity;
 
 pub async fn initialize_tenant_db(
     base_connection_string: &str,
@@ -10,7 +10,7 @@ pub async fn initialize_tenant_db(
     let db = connect_with_retry(base_connection_string, 10, Duration::from_millis(500)).await?;
     let create_schema_sql = format!("CREATE SCHEMA IF NOT EXISTS \"{}\"", schema_name);
     db.execute(Statement::from_string(
-        DatabaseBackend::Postgres,
+        DatabaseBackend::Sqlite,
         create_schema_sql,
     ))
     .await

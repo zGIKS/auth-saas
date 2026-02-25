@@ -6,7 +6,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Redirect},
 };
-use sea_orm::{Database, DatabaseConnection};
+use sea_orm::DatabaseConnection;
 use validator::Validate;
 
 use crate::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
@@ -34,7 +34,7 @@ use crate::iam::identity::interfaces::rest::resources::request_password_reset_re
 use crate::iam::identity::interfaces::rest::resources::reset_password_resource::{
     ResetPasswordRequest, ResetPasswordResponse
 };
-use crate::iam::identity::infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl;
+use crate::iam::identity::infrastructure::persistence::sqlite::repositories::identity_repository_impl::IdentityRepositoryImpl;
 use crate::iam::identity::infrastructure::persistence::redis::pending_identity_repository_impl::PendingIdentityRepositoryImpl;
 use crate::iam::identity::infrastructure::persistence::redis::password_reset_token_repository_impl::PasswordResetTokenRepositoryImpl;
 use crate::iam::authentication::infrastructure::persistence::redis::redis_session_repository::RedisSessionRepository;
@@ -482,22 +482,10 @@ async fn resolve_tenant_db(
 ) -> Result<DatabaseConnection, ErrorResponse> {
     match db_strategy {
         DbStrategy::Shared { schema } => {
-            let connection_string = with_search_path(&state.base_database_url, schema);
-            Database::connect(&connection_string).await.map_err(|e| {
-                tracing::error!("Failed to connect to tenant database: {}", e);
+            state.connection_manager.get_tenant_connection(schema).await.map_err(|e| {
+                tracing::error!("Failed to connect to tenant database {}: {}", schema, e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
             })
         }
     }
-}
-
-fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-    let search_path = format!("-csearch_path={},public", schema_name);
-    let option_value = urlencoding::encode(&search_path);
-    let separator = if base_connection_string.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    format!("{base_connection_string}{separator}options={option_value}")
 }

@@ -10,7 +10,7 @@ use crate::iam::admin_identity::{
         },
         repositories::admin_account_repository::AdminAccountRepository,
     },
-    infrastructure::persistence::postgres::model::{
+    infrastructure::persistence::sqlite::model::{
         ActiveModel, Column, Entity as AdminAccountEntity,
     },
 };
@@ -35,8 +35,8 @@ impl AdminAccountRepository for AdminAccountRepositoryImpl {
             id: Set(admin_account.id().value()),
             username: Set(admin_account.username().value().to_string()),
             password_hash: Set(admin_account.password_hash().value().to_string()),
-            created_at: Set(admin_account.audit().created_at.into()),
-            updated_at: Set(admin_account.audit().updated_at.into()),
+            created_at: Set(admin_account.audit().created_at),
+            updated_at: Set(admin_account.audit().updated_at),
         };
 
         AdminAccountEntity::insert(active_model)
@@ -64,8 +64,8 @@ impl AdminAccountRepository for AdminAccountRepositoryImpl {
                     AdminUsername::from_hashed(m.username)?,
                     AdminPasswordHash::new(m.password_hash)?,
                     AuditableModel {
-                        created_at: m.created_at.into(),
-                        updated_at: m.updated_at.into(),
+                        created_at: m.created_at,
+                        updated_at: m.updated_at,
                     },
                 );
 

@@ -30,15 +30,15 @@ use crate::iam::federation::{
         claim_token_resource::{ClaimTokenRequest, ClaimTokenResponse},
     },
 };
-use crate::iam::identity::infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl;
+use crate::iam::identity::infrastructure::persistence::sqlite::repositories::identity_repository_impl::IdentityRepositoryImpl;
 use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
 use crate::tenancy::interfaces::rest::middleware::TenantContext;
 use crate::tenancy::domain::{
     model::value_objects::{db_strategy::DbStrategy, tenant_id::TenantId},
     repositories::tenant_repository::TenantRepository,
 };
-use crate::tenancy::infrastructure::persistence::postgres::postgres_tenant_repository::PostgresTenantRepository;
-use sea_orm::{Database, DatabaseConnection};
+use crate::tenancy::infrastructure::persistence::sqlite::sqlite_tenant_repository::SqliteTenantRepository;
+use sea_orm::DatabaseConnection;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StateClaims {
@@ -189,7 +189,7 @@ pub async fn google_callback(
 
     // 2. Load Tenant
     let tenant_id = TenantId::new(token_data.claims.tenant_id);
-    let tenant_repo = PostgresTenantRepository::new(state.db.clone());
+    let tenant_repo = SqliteTenantRepository::new(state.db.clone());
 
     let tenant = match tenant_repo.find_by_id(&tenant_id).await {
         Ok(Some(t)) => t,
@@ -383,22 +383,10 @@ async fn resolve_tenant_db(
 ) -> Result<DatabaseConnection, ErrorResponse> {
     match db_strategy {
         DbStrategy::Shared { schema } => {
-            let connection_string = with_search_path(&state.base_database_url, schema);
-            Database::connect(&connection_string).await.map_err(|e| {
-                tracing::error!("Failed to connect to tenant database: {}", e);
+            state.connection_manager.get_tenant_connection(schema).await.map_err(|e| {
+                tracing::error!("Failed to connect to tenant database {}: {}", schema, e);
                 ErrorResponse::new("Failed to connect to tenant database").with_code(500)
             })
         }
     }
-}
-
-fn with_search_path(base_connection_string: &str, schema_name: &str) -> String {
-    let search_path = format!("-csearch_path={},public", schema_name);
-    let option_value = urlencoding::encode(&search_path);
-    let separator = if base_connection_string.contains('?') {
-        "&"
-    } else {
-        "?"
-    };
-    format!("{base_connection_string}{separator}options={option_value}")
 }

@@ -27,7 +27,7 @@ use crate::{
                     admin_identity_query_service::AdminIdentityQueryService,
                 },
             },
-            infrastructure::persistence::repositories::postgres::admin_account_repository_impl::AdminAccountRepositoryImpl,
+            infrastructure::persistence::sqlite::repositories::admin_account_repository_impl::AdminAccountRepositoryImpl,
             interfaces::rest::resources::admin_login_resource::{
                 AdminLoginRequest, AdminLoginResponse,
             },

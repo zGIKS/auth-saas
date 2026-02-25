@@ -1,4 +1,4 @@
-use auth_service::iam::admin_identity::infrastructure::persistence::postgres::model::{
+use auth_service::iam::admin_identity::infrastructure::persistence::sqlite::model::{
     ActiveModel, Column, Entity as AdminAccountEntity,
 };
 use bcrypt::{DEFAULT_COST, hash};
@@ -59,8 +59,8 @@ async fn recover_admin_access() -> Result<(), String> {
             id: Set(Uuid::new_v4()),
             username: Set(username_hash.clone()),
             password_hash: Set(password_hash),
-            created_at: Set(now.into()),
-            updated_at: Set(now.into()),
+            created_at: Set(now),
+            updated_at: Set(now),
         };
 
         new_admin
@@ -80,7 +80,7 @@ async fn recover_admin_access() -> Result<(), String> {
             username: Set(username_hash),
             password_hash: Set(password_hash),
             created_at: Set(existing_admin.created_at),
-            updated_at: Set(now.into()),
+            updated_at: Set(now),
         };
 
         updated_admin

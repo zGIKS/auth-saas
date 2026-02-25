@@ -2,11 +2,12 @@ use redis::Client;
 use sea_orm::DatabaseConnection;
 
 use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
+use crate::shared::infrastructure::persistence::sqlite::connection_manager::ConnectionManager;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: DatabaseConnection,
-    pub base_database_url: String,
+    pub connection_manager: ConnectionManager,
+    pub db: DatabaseConnection, // Keeping this as the main DB connection for convenience
     pub redis: redis::Client,
     pub session_duration_seconds: u64,
     pub refresh_token_duration_seconds: u64,
