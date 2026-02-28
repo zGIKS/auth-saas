@@ -1,140 +1,133 @@
-use asphanyx::shared::interfaces::rest::app_state::AppState;
-use asphanyx::{ApiDoc, iam, tenancy};
+use auth_service::shared::interfaces::rest::app_state::AppState;
+use auth_service::{ApiDoc, iam};
 use axum::{
     Router,
-    routing::{get, post, put},
+    error_handling::HandleErrorLayer,
+    extract::DefaultBodyLimit,
+    http::{StatusCode, header},
+    routing::{get, post},
 };
 use dotenvy::dotenv;
-use sea_orm::{ConnectionTrait, Schema};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use sea_orm::Database;
+use std::sync::Arc;
+use std::time::Duration;
+use tonic::transport::Server;
+use tower::ServiceBuilder;
+use tower::limit::ConcurrencyLimitLayer;
+use tower::load_shed::LoadShedLayer;
+use tower_http::{cors::CorsLayer, set_header::SetResponseHeaderLayer, timeout::TimeoutLayer};
+use tracing_subscriber::EnvFilter;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
-use asphanyx::shared::infrastructure::persistence::redis as redis_infra;
-use asphanyx::shared::interfaces::rest::configuration::web_configuration::WebConfiguration;
-use asphanyx::shared::interfaces::rest::middleware::{
-    rate_limit_middleware, require_admin_panel_origin,
+use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use auth_service::shared::infrastructure::persistence::redis as redis_infra;
+use auth_service::shared::interfaces::rest::middleware::rate_limit_middleware;
+use auth_service::{
+    grpc::authentication_verification_service_server::AuthenticationVerificationServiceServer,
+    iam::authentication::{
+        application::query_services::authentication_query_service_impl::AuthenticationQueryServiceImpl,
+        infrastructure::{
+            persistence::redis::redis_session_repository::RedisSessionRepository,
+            services::jwt_token_service::JwtTokenService,
+        },
+        interfaces::grpc::controllers::authentication_verification_controller::AuthenticationVerificationGrpcController,
+    },
 };
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::RwLock;
+
+fn parse_app_env() -> Result<String, Box<dyn std::error::Error>> {
+    let raw = std::env::var("APP_ENV").unwrap_or_else(|_| "dev".to_string());
+    let env = raw.to_lowercase();
+
+    match env.as_str() {
+        "dev" | "prod" => Ok(env),
+        _ => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("APP_ENV must be 'dev' or 'prod', got '{raw}'"),
+        )
+        .into()),
+    }
+}
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
-
-    // Initialize tracing
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
+    let app_env = parse_app_env()?;
+
     let port: u16 = std::env::var("PORT")
-        .expect("PORT must be set")
+        .map_err(|_| "PORT must be set")?
         .parse()
-        .expect("PORT must be a valid number");
+        .map_err(|_| "PORT must be a valid number")?;
+    let grpc_bind_addr_raw = std::env::var("GRPC_BIND_ADDR").unwrap_or_else(|_| {
+        let grpc_port = std::env::var("GRPC_PORT").unwrap_or_else(|_| "50051".to_string());
+        format!("0.0.0.0:{grpc_port}")
+    });
+    let grpc_bind_addr: std::net::SocketAddr = grpc_bind_addr_raw
+        .parse()
+        .map_err(|_| "GRPC_BIND_ADDR must be a valid host:port")?;
+    let grpc_client_url = std::env::var("GRPC_CLIENT_URL")
+        .unwrap_or_else(|_| format!("http://127.0.0.1:{}", grpc_bind_addr.port()));
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let sqlite_data_dir = std::env::var("SQLITE_DATA_DIR").unwrap_or_else(|_| "data/tenants".to_string());
-    
-    // Automatically create database directories
-    if let Some(parent) = database_url
-        .strip_prefix("sqlite://")
-        .and_then(|path| std::path::Path::new(path).parent())
-    {
-        std::fs::create_dir_all(parent).expect("Failed to create database directory");
-    }
-    std::fs::create_dir_all(&sqlite_data_dir).expect("Failed to create tenants data directory");
-
-    let connection_manager = asphanyx::shared::infrastructure::persistence::sqlite::connection_manager::ConnectionManager::new(
-        database_url.clone(),
-        sqlite_data_dir,
-    );
-
-    let db = connection_manager.get_main_connection()
+    let database_url = std::env::var("DATABASE_URL").map_err(|_| "DATABASE_URL must be set")?;
+    let db = Database::connect(&database_url)
         .await
-        .expect("Failed to connect to Main DB");
+        .map_err(|e| format!("Failed to connect to DB: {}", e))?;
+    auth_service::shared::infrastructure::persistence::postgres::migrations::run_migrations(&db)
+        .await
+        .map_err(|e| format!("Failed to run migrations: {}", e))?;
 
     let redis_client = redis_infra::connect()
         .await
-        .expect("Failed to connect to Redis");
+        .map_err(|e| format!("Redis error: {}", e))?;
 
+    let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| "JWT_SECRET must be set")?;
     let session_duration_seconds: u64 = std::env::var("SESSION_DURATION_SECONDS")
-        .expect("SESSION_DURATION_SECONDS must be set")
+        .map_err(|_| "SESSION_DURATION_SECONDS must be set")?
         .parse()
-        .expect("SESSION_DURATION_SECONDS must be a number");
+        .map_err(|_| "SESSION_DURATION_SECONDS must be a number")?;
 
     let refresh_token_duration_seconds: u64 = std::env::var("REFRESH_TOKEN_DURATION_SECONDS")
-        .expect("REFRESH_TOKEN_DURATION_SECONDS must be set")
+        .map_err(|_| "REFRESH_TOKEN_DURATION_SECONDS must be set")?
         .parse()
-        .expect("REFRESH_TOKEN_DURATION_SECONDS must be a number");
+        .map_err(|_| "REFRESH_TOKEN_DURATION_SECONDS must be a number")?;
 
     let pending_registration_ttl_seconds: u64 = std::env::var("PENDING_REGISTRATION_TTL_SECONDS")
-        .expect("PENDING_REGISTRATION_TTL_SECONDS must be set")
+        .map_err(|_| "PENDING_REGISTRATION_TTL_SECONDS must be set")?
         .parse()
-        .expect("PENDING_REGISTRATION_TTL_SECONDS must be a number");
+        .map_err(|_| "PENDING_REGISTRATION_TTL_SECONDS must be a number")?;
 
     let password_reset_ttl_seconds: u64 = std::env::var("PASSWORD_RESET_TTL_SECONDS")
-        .expect("PASSWORD_RESET_TTL_SECONDS must be set")
+        .map_err(|_| "PASSWORD_RESET_TTL_SECONDS must be set")?
         .parse()
-        .expect("PASSWORD_RESET_TTL_SECONDS must be a number");
+        .map_err(|_| "PASSWORD_RESET_TTL_SECONDS must be a number")?;
 
     let lockout_threshold: u64 = std::env::var("LOCKOUT_THRESHOLD")
-        .expect("LOCKOUT_THRESHOLD must be set")
+        .map_err(|_| "LOCKOUT_THRESHOLD must be set")?
         .parse()
-        .expect("LOCKOUT_THRESHOLD must be a number");
+        .map_err(|_| "LOCKOUT_THRESHOLD must be a number")?;
 
     let lockout_duration_seconds: u64 = std::env::var("LOCKOUT_DURATION_SECONDS")
-        .expect("LOCKOUT_DURATION_SECONDS must be set")
+        .map_err(|_| "LOCKOUT_DURATION_SECONDS must be set")?
         .parse()
-        .expect("LOCKOUT_DURATION_SECONDS must be a number");
+        .map_err(|_| "LOCKOUT_DURATION_SECONDS must be a number")?;
 
-    let frontend_url = std::env::var("FRONTEND_URL")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty());
+    let frontend_url = std::env::var("FRONTEND_URL").ok();
 
+    let google_client_id =
+        std::env::var("GOOGLE_CLIENT_ID").map_err(|_| "GOOGLE_CLIENT_ID must be set")?;
+    let google_client_secret =
+        std::env::var("GOOGLE_CLIENT_SECRET").map_err(|_| "GOOGLE_CLIENT_SECRET must be set")?;
     let google_redirect_uri =
-        std::env::var("GOOGLE_REDIRECT_URI").expect("GOOGLE_REDIRECT_URI must be set");
-
-    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
-    let swagger_enabled: bool = std::env::var("SWAGGER_ENABLED")
-        .unwrap_or_else(|_| "true".to_string())
-        .parse()
-        .expect("SWAGGER_ENABLED must be true or false");
-
-    // Initialize database schema
-    // Only create the tenants table in public schema (metadata)
-    // User tables will be created per-tenant when a tenant is created
-    let builder = db.get_database_backend();
-    let schema = Schema::new(builder);
-
-    // Create Tenant table in public schema (global metadata)
-    let mut create_tenant_table_op = schema
-        .create_table_from_entity(tenancy::infrastructure::persistence::sqlite::model::Entity);
-    let stmt_tenant = builder.build(create_tenant_table_op.if_not_exists());
-
-    match db.execute(stmt_tenant).await {
-        Ok(_) => tracing::info!("Table 'tenants' initialized"),
-        Err(e) => tracing::error!("Error creating 'tenants' table: {}", e),
-    }
-
-    let mut create_admin_accounts_table_op = schema.create_table_from_entity(
-        iam::admin_identity::infrastructure::persistence::sqlite::model::Entity,
-    );
-    let stmt_admin_accounts = builder.build(create_admin_accounts_table_op.if_not_exists());
-
-    match db.execute(stmt_admin_accounts).await {
-        Ok(_) => tracing::info!("Table 'admin_accounts' initialized"),
-        Err(e) => tracing::error!("Error creating 'admin_accounts' table: {}", e),
-    }
+        std::env::var("GOOGLE_REDIRECT_URI").map_err(|_| "GOOGLE_REDIRECT_URI must be set")?;
 
     let state = AppState {
-        connection_manager,
         db,
         redis: redis_client,
+        jwt_secret,
         session_duration_seconds,
         refresh_token_duration_seconds,
         pending_registration_ttl_seconds,
@@ -142,117 +135,141 @@ async fn main() {
         frontend_url,
         lockout_threshold,
         lockout_duration_seconds,
+        google_client_id,
+        google_client_secret,
         google_redirect_uri,
-        jwt_secret,
-        swagger_enabled,
         circuit_breaker: create_circuit_breaker(),
-        tenant_db_cache: Arc::new(RwLock::new(HashMap::new())),
     };
 
-    let tenant_aware_routes = Router::new()
-        .route("/api/v1/identity/sign-up", post(iam::identity::interfaces::rest::controllers::identity_controller::register_identity))
-        .route("/api/v1/auth/sign-in", post(iam::authentication::interfaces::rest::controllers::authentication_controller::signin))
-        .route("/api/v1/auth/logout", post(iam::authentication::interfaces::rest::controllers::authentication_controller::logout))
-        .route("/api/v1/auth/refresh-token", post(iam::authentication::interfaces::rest::controllers::authentication_controller::refresh_token))
-        .route("/api/v1/auth/verify", get(iam::authentication::interfaces::rest::controllers::authentication_controller::verify_token))
-        .route("/api/v1/auth/google", get(iam::federation::interfaces::rest::controllers::google_controller::redirect_to_google))
-        .route("/api/v1/auth/google/claim", post(iam::federation::interfaces::rest::controllers::google_controller::claim_token))
-        .route("/api/v1/identity/confirm-registration", get(iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration))
-        .route("/api/v1/identity/forgot-password", post(iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset))
-        .route("/api/v1/identity/reset-password", post(iam::identity::interfaces::rest::controllers::identity_controller::reset_password))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), tenancy::interfaces::rest::middleware::tenant_resolver));
-
     let app = Router::new()
-        .merge(tenant_aware_routes)
         .route(
-            "/api/v1/admin/login",
-            post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::login_admin)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin)),
+            "/api/v1/identity/sign-up",
+            post(iam::identity::interfaces::rest::controllers::identity_controller::register_identity),
         )
         .route(
-            "/api/v1/admin/logout",
-            post(iam::admin_identity::interfaces::rest::controllers::admin_authentication_controller::logout_admin)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin)),
+            "/api/v1/auth/sign-in",
+            post(iam::authentication::interfaces::rest::controllers::authentication_controller::signin),
         )
-        // Public / Tenant-Agnostic Routes
-        .route("/api/v1/auth/google/callback", get(iam::federation::interfaces::rest::controllers::google_controller::google_callback))
-        // Tenancy Routes
         .route(
-            "/api/v1/tenants",
-            post(tenancy::interfaces::rest::controllers::tenant_controller::create_tenant)
-                .get(tenancy::interfaces::rest::controllers::tenant_controller::list_tenants)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
-                .route_layer(
-                axum::middleware::from_fn_with_state(
+            "/api/v1/auth/logout",
+            post(iam::authentication::interfaces::rest::controllers::authentication_controller::logout),
+        )
+        .route(
+            "/api/v1/auth/refresh-token",
+            post(iam::authentication::interfaces::rest::controllers::authentication_controller::refresh_token),
+        )
+        .route(
+            "/api/v1/auth/verify",
+            get(iam::authentication::interfaces::rest::controllers::authentication_controller::verify_token),
+        )
+        .route(
+            "/api/v1/auth/google",
+            get(iam::federation::interfaces::rest::controllers::google_controller::redirect_to_google),
+        )
+        .route(
+            "/api/v1/auth/google/callback",
+            get(iam::federation::interfaces::rest::controllers::google_controller::google_callback),
+        )
+        .route(
+            "/api/v1/auth/google/claim",
+            post(iam::federation::interfaces::rest::controllers::google_controller::claim_token),
+        )
+        .route(
+            "/api/v1/identity/confirm-registration",
+            get(iam::identity::interfaces::rest::controllers::identity_controller::confirm_registration),
+        )
+        .route(
+            "/api/v1/identity/forgot-password",
+            post(iam::identity::interfaces::rest::controllers::identity_controller::request_password_reset),
+        )
+        .route(
+            "/api/v1/identity/reset-password",
+            post(iam::identity::interfaces::rest::controllers::identity_controller::reset_password),
+        );
+
+    let app = if app_env == "dev" {
+        app.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+    } else {
+        app
+    };
+
+    let grpc_query_service = Arc::new(AuthenticationQueryServiceImpl::new(
+        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds),
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds),
+    ));
+    let grpc_service = AuthenticationVerificationServiceServer::new(
+        AuthenticationVerificationGrpcController::new(grpc_query_service),
+    );
+    tokio::spawn(async move {
+        tracing::info!("gRPC server listening on {}", grpc_bind_addr);
+        if let Err(error) = Server::builder()
+            .add_service(grpc_service)
+            .serve(grpc_bind_addr)
+            .await
+        {
+            tracing::error!("gRPC server failed: {}", error);
+        }
+    });
+
+    let app = app
+        .layer(
+            ServiceBuilder::new()
+                .layer(HandleErrorLayer::new(
+                    |err: Box<dyn std::error::Error + Send + Sync>| async move {
+                        (
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            format!("Service unavailable: {}", err),
+                        )
+                    },
+                ))
+                .layer(LoadShedLayer::new())
+                .layer(ConcurrencyLimitLayer::new(512))
+                .layer(DefaultBodyLimit::max(1024 * 16)) // Limit body to 16KB for security
+                .layer(TimeoutLayer::new(Duration::from_secs(30)))
+                .layer(axum::middleware::from_fn_with_state(
                     state.clone(),
-                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
-                ),
-            ),
-        )
-        .route(
-            "/api/v1/tenants/:id",
-            get(tenancy::interfaces::rest::controllers::tenant_controller::get_tenant)
-                .delete(tenancy::interfaces::rest::controllers::tenant_controller::delete_tenant)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
+                    rate_limit_middleware,
+                ))
+                .layer(CorsLayer::permissive()) // Customize as needed
+                // Security Headers
+                .layer(SetResponseHeaderLayer::overriding(
+                    header::X_CONTENT_TYPE_OPTIONS,
+                    header::HeaderValue::from_static("nosniff"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    header::X_FRAME_OPTIONS,
+                    header::HeaderValue::from_static("DENY"),
+                ))
+                .layer(SetResponseHeaderLayer::overriding(
+                    header::STRICT_TRANSPORT_SECURITY,
+                    header::HeaderValue::from_static("max-age=31536000; includeSubDomains"),
                 )),
         )
-        .route(
-            "/api/v1/tenants/:id/oauth/google/rotate",
-            post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_google_oauth_config)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
-                )),
-        )
-        .route(
-            "/api/v1/tenants/:id/jwt-signing-key/rotate",
-            post(tenancy::interfaces::rest::controllers::tenant_controller::rotate_tenant_jwt_signing_key)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
-                )),
-        )
-        .route(
-            "/api/v1/tenants/:id/anon-key/reissue",
-            post(tenancy::interfaces::rest::controllers::tenant_controller::reissue_tenant_anon_key)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
-                )),
-        )
-        .route(
-            "/api/v1/tenants/:id/frontend-url",
-            put(tenancy::interfaces::rest::controllers::tenant_controller::update_tenant_frontend_url)
-                .route_layer(axum::middleware::from_fn(require_admin_panel_origin))
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    tenancy::interfaces::rest::admin_guard_middleware::require_admin_jwt,
-                )),
-        )
-        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
-        .layer(axum::middleware::from_fn_with_state(state.clone(), rate_limit_middleware))
-        .layer(WebConfiguration::cors())
         .with_state(state);
 
     let addr = format!("0.0.0.0:{}", port);
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .map_err(|e| format!("Failed to bind to {}: {}", addr, e))?;
 
-    tracing::info!("Servidor corriendo en http://localhost:{}", port);
-    tracing::info!(
-        "Swagger UI disponible en http://localhost:{}/swagger-ui",
-        port
-    );
+    println!("Servidor corriendo en http://localhost:{}", port);
+    println!("Servidor gRPC corriendo en {}", grpc_bind_addr);
+    println!("URL gRPC para clientes: {}", grpc_client_url);
+    if app_env == "dev" {
+        println!(
+            "Swagger UI disponible en http://localhost:{}/swagger-ui",
+            port
+        );
+    } else {
+        println!("Swagger UI deshabilitado en modo prod");
+    }
 
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await
-    .unwrap();
+    .map_err(|e| format!("Server error: {}", e))?;
+
+    Ok(())
 }

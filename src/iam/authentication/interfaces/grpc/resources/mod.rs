@@ -1,0 +1,2 @@
+pub mod verify_access_token_request_resource;
+pub mod verify_access_token_response_resource;

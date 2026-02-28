@@ -1,85 +1,85 @@
-use asphanyx::messaging::domain::error::MessagingError;
-use asphanyx::messaging::domain::model::value_objects::{
+use auth_service::messaging::domain::model::value_objects::{
     body::Body, email_address::EmailAddress, subject::Subject,
 };
-use asphanyx::messaging::domain::services::email_sender_service::EmailSenderService;
-use asphanyx::messaging::infrastructure::services::smtp_email_sender::SmtpEmailSender;
-use asphanyx::shared::infrastructure::circuit_breaker::create_circuit_breaker;
+use auth_service::messaging::domain::services::email_sender_service::EmailSenderService;
+use auth_service::messaging::infrastructure::services::smtp_email_sender::SmtpEmailSender;
+use auth_service::shared::infrastructure::circuit_breaker::create_circuit_breaker;
 use dotenvy::dotenv;
 
 #[tokio::test]
 async fn test_send_email_integration() {
     dotenv().ok();
 
-    // Map TEST_SMTP_* variables to standard SMTP_* variables
-    let test_vars = ["HOST", "PORT", "USERNAME", "PASSWORD", "FROM", "TO"];
-    for var in test_vars {
-        if let Ok(val) = std::env::var(format!("TEST_SMTP_{}", var)) {
-            unsafe {
-                std::env::set_var(format!("SMTP_{}", var), val);
+    // Prioritize TEST_SMTP_ variables, fallback to standard SMTP_ if not present
+    let host = std::env::var("TEST_SMTP_HOST")
+        .unwrap_or_else(|_| std::env::var("SMTP_HOST").unwrap_or_default());
+    let port = std::env::var("TEST_SMTP_PORT")
+        .unwrap_or_else(|_| std::env::var("SMTP_PORT").unwrap_or_default());
+    let username = std::env::var("TEST_SMTP_USERNAME")
+        .unwrap_or_else(|_| std::env::var("SMTP_USERNAME").unwrap_or_default());
+    let password = match std::env::var("TEST_SMTP_PASSWORD") {
+        Ok(v) => v,
+        Err(_) => match std::env::var("SMTP_PASSWORD") {
+            Ok(v) => v,
+            Err(_) => {
+                println!("Skipping email test: TEST_SMTP_PASSWORD or SMTP_PASSWORD not set");
+                return;
             }
-        }
-    }
+        },
+    };
+    let from = std::env::var("TEST_SMTP_FROM")
+        .unwrap_or_else(|_| std::env::var("SMTP_FROM").unwrap_or_default());
 
-    // Skip test if SMTP password is missing (checks after mapping)
-    if std::env::var("SMTP_PASSWORD").is_err() {
-        println!("Skipping email test: SMTP_PASSWORD (or TEST_SMTP_PASSWORD) not set");
-        return;
+    // For Resend, we must use a verified email or their official test addresses.
+    let to_addr = match std::env::var("TEST_SMTP_TO") {
+        Ok(v) => v,
+        Err(_) => {
+            println!("Skipping email test: TEST_SMTP_TO not set");
+            return;
+        }
+    };
+
+    // Override environment variables so SmtpEmailSender::new() picks them up
+    unsafe {
+        std::env::set_var("SMTP_HOST", host);
+        std::env::set_var("SMTP_PORT", port);
+        std::env::set_var("SMTP_USERNAME", username);
+        std::env::set_var("SMTP_PASSWORD", password);
+        std::env::set_var("SMTP_FROM", from);
     }
 
     let sender =
         SmtpEmailSender::new(create_circuit_breaker()).expect("Failed to create SMTP sender");
 
-    // Primary destination for integration tests - Use Resend's safe test address by default
-    let primary_to_addr =
-        std::env::var("SMTP_TO").unwrap_or_else(|_| "delivered@resend.dev".to_string());
-    let fallback_to_addr = std::env::var("SMTP_FALLBACK_TO")
-        .or_else(|_| std::env::var("SMTP_FROM"))
-        .unwrap_or_else(|_| "delivered@resend.dev".to_string());
-
-    // Clean address to avoid validation errors like "user@gmail..com" if they exist in env
-    let primary_to_addr = primary_to_addr.replace("..", ".");
-
-    let to = EmailAddress::new(primary_to_addr.clone()).expect("Invalid SMTP_TO address");
+    let to = match EmailAddress::new(to_addr.clone()) {
+        Ok(email) => email,
+        Err(_) => {
+            println!(
+                "Skipping email test: target recipient is not a valid email ({})",
+                to_addr
+            );
+            return;
+        }
+    };
     let subject = Subject::new("Integration Test Email".to_string()).unwrap();
     let body =
-        Body::new("This is a test email from the asphanyx integration test.".to_string())
+        Body::new("This is a test email from the auth-service integration test.".to_string())
             .unwrap();
 
     let result = sender.send(&to, &subject, &body).await;
 
     match result {
-        Ok(_) => println!("Email sent successfully to {}", primary_to_addr),
-        Err(MessagingError::SendError(message))
-            if message.contains("You can only send testing emails to your own email address") =>
-        {
-            if fallback_to_addr == primary_to_addr {
+        Ok(_) => println!("Email sent successfully to {}", to_addr),
+        Err(e) => {
+            let err_text = format!("{:?}", e);
+            if err_text.contains("You can only send testing emails to your own email address") {
                 println!(
-                    "Skipping email test due to Resend sandbox restriction: {}",
-                    message
+                    "Skipping email test: Resend sandbox recipient restriction ({})",
+                    err_text
                 );
                 return;
             }
-
-            let fallback_to = match EmailAddress::new(fallback_to_addr.clone()) {
-                Ok(value) => value,
-                Err(_) => {
-                    println!(
-                        "Skipping email test: fallback recipient is invalid and sandbox blocked primary"
-                    );
-                    return;
-                }
-            };
-            let fallback_result = sender.send(&fallback_to, &subject, &body).await;
-
-            match fallback_result {
-                Ok(_) => println!(
-                    "Primary recipient blocked by sandbox; email sent to fallback {}",
-                    fallback_to_addr
-                ),
-                Err(e) => panic!("Failed to send email (including fallback): {:?}", e),
-            }
+            panic!("Failed to send email: {:?}", e);
         }
-        Err(e) => panic!("Failed to send email: {:?}", e),
     }
 }

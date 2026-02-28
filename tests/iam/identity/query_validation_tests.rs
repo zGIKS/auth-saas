@@ -1,5 +1,5 @@
 /// Tests for query validation (ConfirmEmailQuery)
-use asphanyx::iam::identity::domain::model::queries::confirm_email_query::ConfirmEmailQuery;
+use auth_service::iam::identity::domain::model::queries::confirm_email_query::ConfirmEmailQuery;
 
 #[test]
 fn test_confirm_email_query_validation_success() {

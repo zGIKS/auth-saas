@@ -1,4 +1,4 @@
-use asphanyx::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
+use auth_service::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
 use std::time::Duration;
 use tokio::time::sleep;
 

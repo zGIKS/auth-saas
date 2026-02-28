@@ -1,17 +1,17 @@
 use async_trait::async_trait;
-use asphanyx::iam::identity::domain::error::DomainError;
+use auth_service::iam::identity::domain::error::DomainError;
 /// Shared mocks for identity tests
-use asphanyx::iam::identity::domain::model::aggregates::identity::Identity;
-use asphanyx::iam::identity::domain::model::value_objects::{
+use auth_service::iam::identity::domain::model::aggregates::identity::Identity;
+use auth_service::iam::identity::domain::model::value_objects::{
     email::Email, pending_identity::PendingIdentity,
 };
-use asphanyx::iam::identity::domain::repositories::{
+use auth_service::iam::identity::domain::repositories::{
     identity_repository::IdentityRepository,
     password_reset_token_repository::PasswordResetTokenRepository,
     pending_identity_repository::PendingIdentityRepository,
 };
-use asphanyx::iam::identity::domain::services::notification_service::NotificationService;
-use asphanyx::iam::identity::domain::services::session_invalidation_service::SessionInvalidationService;
+use auth_service::iam::identity::domain::services::notification_service::NotificationService;
+use auth_service::iam::identity::domain::services::session_invalidation_service::SessionInvalidationService;
 use mockall::mock;
 use std::error::Error;
 use std::future::Future;

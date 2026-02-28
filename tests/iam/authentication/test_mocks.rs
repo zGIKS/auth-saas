@@ -1,16 +1,16 @@
 /// Shared mocks for authentication tests
-use asphanyx::iam::authentication::domain::model::value_objects::{
+use auth_service::iam::authentication::domain::model::value_objects::{
     claims::Claims, refresh_token::RefreshToken, token::Token,
 };
-use asphanyx::iam::authentication::domain::services::authentication_command_service::{
+use auth_service::iam::authentication::domain::services::authentication_command_service::{
     SessionRepository, TokenService,
 };
-use asphanyx::iam::identity::interfaces::acl::identity_facade::IdentityFacade;
+use auth_service::iam::identity::interfaces::acl::identity_facade::IdentityFacade;
 use mockall::mock;
 use std::error::Error;
 use uuid::Uuid;
 
-use asphanyx::shared::infrastructure::services::account_lockout::{
+use auth_service::shared::infrastructure::services::account_lockout::{
     AccountLockoutVerifier, LockoutError,
 };
 

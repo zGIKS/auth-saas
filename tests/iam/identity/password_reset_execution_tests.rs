@@ -1,15 +1,15 @@
 /// Tests for ResetPasswordCommand execution
 use super::test_mocks::*;
-use asphanyx::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
-use asphanyx::iam::identity::domain::error::DomainError;
-use asphanyx::iam::identity::domain::model::aggregates::identity::Identity;
-use asphanyx::iam::identity::domain::model::commands::reset_password_command::ResetPasswordCommand;
-use asphanyx::iam::identity::domain::model::value_objects::identity_id::IdentityId;
-use asphanyx::iam::identity::domain::model::value_objects::{
+use auth_service::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
+use auth_service::iam::identity::domain::error::DomainError;
+use auth_service::iam::identity::domain::model::aggregates::identity::Identity;
+use auth_service::iam::identity::domain::model::commands::reset_password_command::ResetPasswordCommand;
+use auth_service::iam::identity::domain::model::value_objects::identity_id::IdentityId;
+use auth_service::iam::identity::domain::model::value_objects::{
     auth_provider::AuthProvider, password::Password,
 };
-use asphanyx::iam::identity::domain::services::identity_command_service::IdentityCommandService;
-use asphanyx::shared::domain::model::entities::auditable_model::AuditableModel;
+use auth_service::iam::identity::domain::services::identity_command_service::IdentityCommandService;
+use auth_service::shared::domain::model::entities::auditable_model::AuditableModel;
 use std::time::Duration;
 
 #[tokio::test]
@@ -80,7 +80,6 @@ async fn test_reset_password_success() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let new_password = Password::new("NewSecurePass123!".to_string()).unwrap();
     let command = ResetPasswordCommand::new(test_token.to_string(), new_password);
@@ -116,7 +115,6 @@ async fn test_reset_password_invalid_token() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let new_password = Password::new("NewSecurePass123!".to_string()).unwrap();
     let command = ResetPasswordCommand::new(invalid_token.to_string(), new_password);
@@ -192,7 +190,6 @@ async fn test_reset_password_hashes_new_password() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let new_password = Password::new(plain_password.to_string()).unwrap();
     let command = ResetPasswordCommand::new(test_token.to_string(), new_password);
@@ -264,7 +261,6 @@ async fn test_reset_password_deletes_token_after_use() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let new_password = Password::new("NewPassword123!".to_string()).unwrap();
     let command = ResetPasswordCommand::new(test_token_clone, new_password);
@@ -307,7 +303,6 @@ async fn test_reset_password_user_not_found_for_valid_token() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let new_password = Password::new("NewPassword123!".to_string()).unwrap();
     let command = ResetPasswordCommand::new(test_token.to_string(), new_password);
@@ -391,7 +386,6 @@ async fn test_reset_password_accepts_strong_password() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     // Strong password with all requirements
     let strong_password = Password::new("V3ry$tr0ng&C0mpl3xP@ssw0rd!".to_string()).unwrap();

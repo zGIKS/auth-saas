@@ -1,4 +1,4 @@
-use asphanyx::shared::infrastructure::services::account_lockout::{AccountLockoutVerifier, LockoutError};
+use auth_service::shared::infrastructure::services::account_lockout::{AccountLockoutVerifier, LockoutError};
 
 pub struct MockAccountLockoutShim;
 

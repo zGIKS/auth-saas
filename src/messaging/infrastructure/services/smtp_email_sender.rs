@@ -31,19 +31,21 @@ impl SmtpEmailSender {
         let port = port_str
             .parse::<u16>()
             .map_err(|_| MessagingError::ConfigError("SMTP_PORT invalid".to_string()))?;
-
         let from = env::var("SMTP_FROM").unwrap_or_else(|_| username.clone());
 
         let credentials = Credentials::new(username.clone(), password);
 
-        let builder = if port == 465 {
+        let transport_builder = if port == 465 {
             AsyncSmtpTransport::<Tokio1Executor>::relay(&host)
         } else {
             AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&host)
         }
         .map_err(|e| MessagingError::ConfigError(format!("Failed to build transport: {}", e)))?;
 
-        let mailer = builder.port(port).credentials(credentials).build();
+        let mailer = transport_builder
+            .port(port)
+            .credentials(credentials)
+            .build();
 
         Ok(Self {
             mailer,

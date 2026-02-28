@@ -1,14 +1,14 @@
 /// Tests for RequestPasswordResetCommand flow
 use super::test_mocks::*;
-use asphanyx::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
-use asphanyx::iam::identity::domain::model::aggregates::identity::Identity;
-use asphanyx::iam::identity::domain::model::commands::request_password_reset_command::RequestPasswordResetCommand;
-use asphanyx::iam::identity::domain::model::value_objects::identity_id::IdentityId;
-use asphanyx::iam::identity::domain::model::value_objects::{
+use auth_service::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
+use auth_service::iam::identity::domain::model::aggregates::identity::Identity;
+use auth_service::iam::identity::domain::model::commands::request_password_reset_command::RequestPasswordResetCommand;
+use auth_service::iam::identity::domain::model::value_objects::identity_id::IdentityId;
+use auth_service::iam::identity::domain::model::value_objects::{
     auth_provider::AuthProvider, email::Email, password::Password,
 };
-use asphanyx::iam::identity::domain::services::identity_command_service::IdentityCommandService;
-use asphanyx::shared::domain::model::entities::auditable_model::AuditableModel;
+use auth_service::iam::identity::domain::services::identity_command_service::IdentityCommandService;
+use auth_service::shared::domain::model::entities::auditable_model::AuditableModel;
 use std::time::Duration;
 
 #[tokio::test]
@@ -62,7 +62,6 @@ async fn test_request_password_reset_success() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -101,7 +100,6 @@ async fn test_request_password_reset_non_existent_email_returns_ok() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -162,7 +160,6 @@ async fn test_request_password_reset_generates_secure_token() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -221,7 +218,6 @@ async fn test_request_password_reset_uses_correct_ttl() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;
@@ -284,7 +280,6 @@ async fn test_request_password_reset_email_contains_frontend_url() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let command = RequestPasswordResetCommand::new(test_email);
     let result = service.request_password_reset(command).await;

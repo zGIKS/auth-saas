@@ -1,15 +1,15 @@
 /// Tests for registration command and validation
 use super::test_mocks::*;
-use asphanyx::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
-use asphanyx::iam::identity::domain::error::DomainError;
-use asphanyx::iam::identity::domain::model::aggregates::identity::Identity;
-use asphanyx::iam::identity::domain::model::commands::register_identity_command::RegisterIdentityCommand;
-use asphanyx::iam::identity::domain::model::value_objects::identity_id::IdentityId;
-use asphanyx::iam::identity::domain::model::value_objects::{
+use auth_service::iam::identity::application::command_services::identity_command_service_impl::IdentityCommandServiceImpl;
+use auth_service::iam::identity::domain::error::DomainError;
+use auth_service::iam::identity::domain::model::aggregates::identity::Identity;
+use auth_service::iam::identity::domain::model::commands::register_identity_command::RegisterIdentityCommand;
+use auth_service::iam::identity::domain::model::value_objects::identity_id::IdentityId;
+use auth_service::iam::identity::domain::model::value_objects::{
     auth_provider::AuthProvider, email::Email, password::Password,
 };
-use asphanyx::iam::identity::domain::services::identity_command_service::IdentityCommandService;
-use asphanyx::shared::domain::model::entities::auditable_model::AuditableModel;
+use auth_service::iam::identity::domain::services::identity_command_service::IdentityCommandService;
+use auth_service::shared::domain::model::entities::auditable_model::AuditableModel;
 use std::time::Duration;
 
 #[tokio::test]
@@ -50,7 +50,6 @@ async fn test_register_identity_success() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let email = Email::new("test@gmail.com".to_string()).unwrap();
     let password = Password::new("SecurePass123!".to_string()).unwrap();
@@ -91,7 +90,6 @@ async fn test_register_identity_duplicate_email() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
 
     let email = Email::new("duplicate@gmail.com".to_string()).unwrap();
     let password = Password::new("SecurePass123!".to_string()).unwrap();
@@ -155,7 +153,6 @@ async fn test_password_is_hashed_before_saving_pending() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
     let email = Email::new("hash_test@gmail.com".to_string()).unwrap();
     let password = Password::new(plain_password.to_string()).unwrap();
     let command = RegisterIdentityCommand::new(email, password, AuthProvider::Email);
@@ -213,7 +210,6 @@ async fn test_register_identity_overwrites_existing_pending() {
         ttl,
         reset_ttl,
     );
-    let service = service.with_frontend_url("http://localhost:3000".to_string());
     let email = Email::new("overwrite@gmail.com".to_string()).unwrap();
     let password = Password::new("SecurePass123!".to_string()).unwrap();
     let command = RegisterIdentityCommand::new(email, password, AuthProvider::Email);

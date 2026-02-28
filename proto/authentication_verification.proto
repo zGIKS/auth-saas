@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package authentication_verification;
+
+service AuthenticationVerificationService {
+  rpc VerifyAccessToken(VerifyAccessTokenRequest) returns (VerifyAccessTokenResponse);
+}
+
+message VerifyAccessTokenRequest {
+  string access_token = 1;
+}
+
+message VerifyAccessTokenResponse {
+  bool is_valid = 1;
+  string subject_id = 2;
+  string jti = 3;
+  uint64 exp_epoch_seconds = 4;
+  string error_message = 5;
+}

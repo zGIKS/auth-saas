@@ -44,7 +44,6 @@ where
     session_invalidation_service: S,
     pending_ttl: Duration,
     password_reset_ttl: Duration,
-    frontend_url: Option<String>,
 }
 
 impl<R, P, PR, N, S> IdentityCommandServiceImpl<R, P, PR, N, S>
@@ -72,13 +71,7 @@ where
             session_invalidation_service,
             pending_ttl,
             password_reset_ttl,
-            frontend_url: None,
         }
-    }
-
-    pub fn with_frontend_url(mut self, frontend_url: String) -> Self {
-        self.frontend_url = Some(frontend_url);
-        self
     }
 }
 
@@ -105,8 +98,11 @@ where
         }
 
         // Security: Hash password before domain/persistence interaction
-        let hashed = hash(command.password.value(), DEFAULT_COST)
-            .map_err(|e| DomainError::InternalError(e.to_string()))?;
+        let password_val = command.password.value().to_string();
+        let hashed = tokio::task::spawn_blocking(move || hash(password_val, DEFAULT_COST))
+            .await
+            .map_err(|e| DomainError::InternalError(format!("Task join error: {}", e)))?
+            .map_err(|e| DomainError::InternalError(format!("Hashing error: {}", e)))?;
 
         // Replace plain password with hash in the command
         command.password = Password::new(hashed.clone()).map_err(DomainError::InternalError)?;
@@ -139,7 +135,8 @@ where
 
         // Send Verification Email
         // Construct the verification link pointing to the FRONTEND
-        let frontend_url = self.resolve_frontend_url()?;
+        let frontend_url = std::env::var("FRONTEND_URL")
+            .map_err(|_| DomainError::InternalError("FRONTEND_URL must be set".to_string()))?;
         validate_frontend_url(&frontend_url)?;
         let verification_link = format!("{}/verify?token={}", frontend_url, token.value());
 
@@ -233,8 +230,7 @@ where
         }
 
         // 4. Send Email
-        let frontend_url = self.resolve_frontend_url()?;
-        validate_frontend_url(&frontend_url)?;
+        let frontend_url = get_frontend_url().await?;
         let reset_link = format!("{}/reset-password?token={}", frontend_url, token.value());
 
         self.notification_service
@@ -269,8 +265,12 @@ where
             ))?;
 
         // 3. Hash New Password
-        let hashed_password = hash(command.new_password.value(), DEFAULT_COST)
-            .map_err(|e| DomainError::InternalError(e.to_string()))?;
+        let new_password_val = command.new_password.value().to_string();
+        let hashed_password =
+            tokio::task::spawn_blocking(move || hash(new_password_val, DEFAULT_COST))
+                .await
+                .map_err(|e| DomainError::InternalError(format!("Task join error: {}", e)))?
+                .map_err(|e| DomainError::InternalError(format!("Hashing error: {}", e)))?;
 
         let new_password = Password::new(hashed_password).map_err(DomainError::InternalError)?;
 
@@ -296,23 +296,11 @@ where
     }
 }
 
-impl<R, P, PR, N, S> IdentityCommandServiceImpl<R, P, PR, N, S>
-where
-    R: IdentityRepository,
-    P: PendingIdentityRepository,
-    PR: PasswordResetTokenRepository,
-    N: NotificationService,
-    S: SessionInvalidationService,
-{
-    fn resolve_frontend_url(&self) -> Result<String, DomainError> {
-        if let Some(value) = &self.frontend_url {
-            return Ok(value.clone());
-        }
-
-        Err(DomainError::InternalError(
-            "Tenant frontend_url must be provided".to_string(),
-        ))
-    }
+async fn get_frontend_url() -> Result<String, DomainError> {
+    let url = std::env::var("FRONTEND_URL")
+        .map_err(|_| DomainError::InternalError("FRONTEND_URL must be set".to_string()))?;
+    validate_frontend_url(&url)?;
+    Ok(url)
 }
 
 fn validate_frontend_url(url: &str) -> Result<(), DomainError> {
@@ -323,7 +311,7 @@ fn validate_frontend_url(url: &str) -> Result<(), DomainError> {
         Ok(())
     } else {
         Err(DomainError::InternalError(
-            "frontend_url must use HTTPS for security, or HTTP only for localhost/127.0.0.1 in development".to_string(),
+            "FRONTEND_URL must use HTTPS for security, or HTTP only for localhost/127.0.0.1 in development".to_string(),
         ))
     }
 }

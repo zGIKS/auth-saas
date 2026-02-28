@@ -1,4 +1,3 @@
-use crate::shared::infrastructure::circuit_breaker::AppCircuitBreaker;
 use async_trait::async_trait;
 use redis::{AsyncCommands, Client, RedisError};
 
@@ -18,7 +17,6 @@ pub trait AccountLockoutVerifier: Send + Sync {
 #[derive(Clone)]
 pub struct AccountLockoutService {
     client: Client,
-    circuit_breaker: AppCircuitBreaker,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -27,8 +25,6 @@ pub enum LockoutError {
     Redis(#[from] RedisError),
     #[error("Account is locked. Try again later.")]
     Locked(u64), // TTL remaining
-    #[error("Service temporarily unavailable (Circuit Breaker)")]
-    CircuitOpen,
 }
 
 #[async_trait]
@@ -37,56 +33,25 @@ impl AccountLockoutVerifier for AccountLockoutService {
     /// If IP is provided, checks if that specific IP is locked for this identity.
     /// Also checks global identity lock (if any).
     async fn check_locked(&self, identity: &str, ip: Option<&str>) -> Result<(), LockoutError> {
-        if !self.circuit_breaker.is_call_permitted().await {
-            return Err(LockoutError::CircuitOpen);
-        }
-
-        let mut conn = match self.client.get_multiplexed_async_connection().await {
-            Ok(c) => c,
-            Err(e) => {
-                self.circuit_breaker.on_failure().await;
-                return Err(LockoutError::Redis(e));
-            }
-        };
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         // 1. Check Global Lock (lockout:email)
         let global_lock_key = format!("lockout:{}", identity);
-
-        // Combine operations if possible, but for clarity keeping sequential checks
-        // We wrap the logic to handle success/failure for CB
-
-        let result = async {
-            let global_ttl: i64 = conn.ttl(&global_lock_key).await?;
-            if global_ttl > 0 {
-                return Ok::<_, RedisError>(Some(global_ttl as u64));
-            }
-
-            // 2. Check IP-specific Lock (lockout:email:ip)
-            if let Some(ip_addr) = ip {
-                let ip_lock_key = format!("lockout:{}:{}", identity, ip_addr);
-                let ip_ttl: i64 = conn.ttl(&ip_lock_key).await?;
-                if ip_ttl > 0 {
-                    return Ok(Some(ip_ttl as u64));
-                }
-            }
-            Ok(None)
+        let global_ttl: i64 = conn.ttl(&global_lock_key).await?;
+        if global_ttl > 0 {
+            return Err(LockoutError::Locked(global_ttl as u64));
         }
-        .await;
 
-        match result {
-            Ok(Some(ttl)) => {
-                self.circuit_breaker.on_success().await;
-                Err(LockoutError::Locked(ttl))
-            }
-            Ok(None) => {
-                self.circuit_breaker.on_success().await;
-                Ok(())
-            }
-            Err(e) => {
-                self.circuit_breaker.on_failure().await;
-                Err(LockoutError::Redis(e))
+        // 2. Check IP-specific Lock (lockout:email:ip)
+        if let Some(ip_addr) = ip {
+            let ip_lock_key = format!("lockout:{}:{}", identity, ip_addr);
+            let ip_ttl: i64 = conn.ttl(&ip_lock_key).await?;
+            if ip_ttl > 0 {
+                return Err(LockoutError::Locked(ip_ttl as u64));
             }
         }
+
+        Ok(())
     }
 
     /// Registers a failed attempt.
@@ -101,17 +66,7 @@ impl AccountLockoutVerifier for AccountLockoutService {
         threshold: u64,
         lock_duration_sec: u64,
     ) -> Result<bool, LockoutError> {
-        if !self.circuit_breaker.is_call_permitted().await {
-            return Err(LockoutError::CircuitOpen);
-        }
-
-        let mut conn = match self.client.get_multiplexed_async_connection().await {
-            Ok(c) => c,
-            Err(e) => {
-                self.circuit_breaker.on_failure().await;
-                return Err(LockoutError::Redis(e));
-            }
-        };
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let (attempts_key, lock_key) = if let Some(ip_addr) = ip {
             (
@@ -125,86 +80,44 @@ impl AccountLockoutVerifier for AccountLockoutService {
             )
         };
 
-        let result = async {
-            // Increment attempts using INCR
-            let attempts: u64 = conn.incr(&attempts_key, 1).await?;
+        // Increment attempts using INCR
+        let attempts: u64 = conn.incr(&attempts_key, 1).await?;
 
-            // Set expiry on the attempts key (sliding window for failures check)
-            if attempts == 1 {
-                let _: () = conn.expire(&attempts_key, 600).await?; // 10 minutes failure window
-            }
-
-            if attempts >= threshold {
-                // Lock the account (scoped to IP if provided)
-                let _: () = conn.set_ex(&lock_key, "locked", lock_duration_sec).await?;
-                // Reset attempts so strict lockout period applies
-                let _: () = conn.del(&attempts_key).await?;
-                return Ok::<bool, RedisError>(true);
-            }
-            Ok(false)
+        // Set expiry on the attempts key (sliding window for failures check)
+        if attempts == 1 {
+            let _: () = conn.expire(&attempts_key, 600).await?; // 10 minutes failure window
         }
-        .await;
 
-        match result {
-            Ok(locked) => {
-                self.circuit_breaker.on_success().await;
-                Ok(locked)
-            }
-            Err(e) => {
-                self.circuit_breaker.on_failure().await;
-                Err(LockoutError::Redis(e))
-            }
+        if attempts >= threshold {
+            // Lock the account (scoped to IP if provided)
+            let _: () = conn.set_ex(&lock_key, "locked", lock_duration_sec).await?;
+            // Reset attempts so strict lockout period applies
+            let _: () = conn.del(&attempts_key).await?;
+            return Ok(true);
         }
+
+        Ok(false)
     }
 
     /// Resets the failure counter (e.g., on successful login).
     /// Clears both global and IP-specific counters for this identity to be safe.
     async fn reset_failure(&self, identity: &str, ip: Option<&str>) -> Result<(), LockoutError> {
-        if !self.circuit_breaker.is_call_permitted().await {
-            // If we can't reset failure due to Redis being down, we might want to log it
-            // but usually this is "best effort". However, per strict Fail Closed, we return error.
-            return Err(LockoutError::CircuitOpen);
-        }
-
-        let mut conn = match self.client.get_multiplexed_async_connection().await {
-            Ok(c) => c,
-            Err(e) => {
-                self.circuit_breaker.on_failure().await;
-                return Err(LockoutError::Redis(e));
-            }
-        };
+        let mut conn = self.client.get_multiplexed_async_connection().await?;
 
         let global_attempts = format!("login_failures:{}", identity);
+        let _: () = conn.del(&global_attempts).await?;
 
-        let result = async {
-            let _: () = conn.del(&global_attempts).await?;
-
-            if let Some(ip_addr) = ip {
-                let ip_attempts = format!("login_failures:{}:{}", identity, ip_addr);
-                let _: () = conn.del(&ip_attempts).await?;
-            }
-            Ok::<(), RedisError>(())
+        if let Some(ip_addr) = ip {
+            let ip_attempts = format!("login_failures:{}:{}", identity, ip_addr);
+            let _: () = conn.del(&ip_attempts).await?;
         }
-        .await;
 
-        match result {
-            Ok(_) => {
-                self.circuit_breaker.on_success().await;
-                Ok(())
-            }
-            Err(e) => {
-                self.circuit_breaker.on_failure().await;
-                Err(LockoutError::Redis(e))
-            }
-        }
+        Ok(())
     }
 }
 
 impl AccountLockoutService {
-    pub fn new(client: Client, circuit_breaker: AppCircuitBreaker) -> Self {
-        Self {
-            client,
-            circuit_breaker,
-        }
+    pub fn new(client: Client) -> Self {
+        Self { client }
     }
 }

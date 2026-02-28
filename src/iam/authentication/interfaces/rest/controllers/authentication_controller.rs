@@ -25,18 +25,15 @@ use crate::iam::authentication::{
 };
 use crate::iam::identity::{
     application::acl::identity_facade_impl::IdentityFacadeImpl,
-    infrastructure::persistence::sqlite::repositories::identity_repository_impl::IdentityRepositoryImpl,
+    infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl,
 };
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutService;
 use crate::shared::interfaces::rest::app_state::AppState;
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
-use crate::shared::interfaces::rest::middleware::extract_client_ip;
-use crate::tenancy::domain::model::value_objects::db_strategy::DbStrategy;
-use crate::tenancy::interfaces::rest::middleware::TenantContext;
 
 use axum::{
-    extract::{ConnectInfo, Extension, Json, Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{ConnectInfo, Json, Query, State},
+    http::StatusCode,
     response::IntoResponse,
 };
 use std::net::SocketAddr;
@@ -55,8 +52,6 @@ use validator::Validate;
 )]
 pub async fn signin(
     State(state): State<AppState>,
-    Extension(tenant_ctx): Extension<TenantContext>,
-    headers: HeaderMap,
     // ConnectInfo is available because we use into_make_service_with_connect_info in main.rs
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     Json(resource): Json<SigninResource>,
@@ -66,26 +61,15 @@ pub async fn signin(
     }
 
     // Extract IP from ConnectInfo
-    let ip_address = Some(extract_client_ip(&headers, Some(addr.ip())));
+    let ip_address = Some(addr.ip().to_string());
 
-    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
-        Ok(db) => db,
-        Err(resp) => return resp.into_response(),
-    };
-    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
-    // Use tenant-specific JWT secret instead of global one
-    let token_service = JwtTokenService::new(
-        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
-        state.session_duration_seconds,
-    );
-    let session_repo = RedisSessionRepository::new(
-        state.redis.clone(),
-        state.session_duration_seconds,
-        state.circuit_breaker.clone(),
-    );
-    let lockout_service =
-        AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
+    let token_service =
+        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+    let session_repo =
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let lockout_service = AccountLockoutService::new(state.redis.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -132,31 +116,19 @@ pub async fn signin(
 )]
 pub async fn logout(
     State(state): State<AppState>,
-    Extension(tenant_ctx): Extension<TenantContext>,
     Json(resource): Json<LogoutResource>,
 ) -> impl IntoResponse {
     if let Err(e) = resource.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
-        Ok(db) => db,
-        Err(resp) => return resp.into_response(),
-    };
-    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
-    // Use tenant-specific JWT secret instead of global one
-    let token_service = JwtTokenService::new(
-        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
-        state.session_duration_seconds,
-    );
-    let session_repo = RedisSessionRepository::new(
-        state.redis.clone(),
-        state.session_duration_seconds,
-        state.circuit_breaker.clone(),
-    );
-    let lockout_service =
-        AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
+    let token_service =
+        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+    let session_repo =
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let lockout_service = AccountLockoutService::new(state.redis.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -196,31 +168,19 @@ pub async fn logout(
 )]
 pub async fn refresh_token(
     State(state): State<AppState>,
-    Extension(tenant_ctx): Extension<TenantContext>,
     Json(resource): Json<RefreshTokenResource>,
 ) -> impl IntoResponse {
     if let Err(e) = resource.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    let tenant_db = match resolve_tenant_db(&state, &tenant_ctx.tenant.db_strategy).await {
-        Ok(db) => db,
-        Err(resp) => return resp.into_response(),
-    };
-    let identity_repo = IdentityRepositoryImpl::new(tenant_db);
+    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
-    // Use tenant-specific JWT secret instead of global one
-    let token_service = JwtTokenService::new(
-        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
-        state.session_duration_seconds,
-    );
-    let session_repo = RedisSessionRepository::new(
-        state.redis.clone(),
-        state.session_duration_seconds,
-        state.circuit_breaker.clone(),
-    );
-    let lockout_service =
-        AccountLockoutService::new(state.redis.clone(), state.circuit_breaker.clone());
+    let token_service =
+        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+    let session_repo =
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
+    let lockout_service = AccountLockoutService::new(state.redis.clone());
 
     let service = AuthenticationCommandServiceImpl::new(
         identity_facade,
@@ -268,23 +228,16 @@ pub async fn refresh_token(
 )]
 pub async fn verify_token(
     State(state): State<AppState>,
-    Extension(tenant_ctx): Extension<TenantContext>,
     Query(resource): Query<VerifyTokenResource>,
 ) -> impl IntoResponse {
     if let Err(e) = resource.validate() {
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    // Use tenant-specific JWT secret instead of global one
-    let token_service = JwtTokenService::new(
-        tenant_ctx.tenant.auth_config.jwt_secret.clone(),
-        state.session_duration_seconds,
-    );
-    let session_repo = RedisSessionRepository::new(
-        state.redis.clone(),
-        state.session_duration_seconds,
-        state.circuit_breaker.clone(),
-    );
+    let token_service =
+        JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
+    let session_repo =
+        RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
 
     let service = AuthenticationQueryServiceImpl::new(token_service, session_repo);
 
@@ -310,20 +263,6 @@ pub async fn verify_token(
                 }),
             )
                 .into_response()
-        }
-    }
-}
-
-async fn resolve_tenant_db(
-    state: &AppState,
-    db_strategy: &DbStrategy,
-) -> Result<sea_orm::DatabaseConnection, ErrorResponse> {
-    match db_strategy {
-        DbStrategy::Isolated { database } => {
-            state.tenant_db_for_database(database).await.map_err(|e| {
-                tracing::error!("Failed to connect to tenant database: {}", e);
-                ErrorResponse::new("Failed to connect to tenant database").with_code(500)
-            })
         }
     }
 }

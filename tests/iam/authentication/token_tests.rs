@@ -1,5 +1,5 @@
 /// Tests for JWT token generation and validation
-use asphanyx::iam::authentication::domain::model::value_objects::token::Token;
+use auth_service::iam::authentication::domain::model::value_objects::token::Token;
 
 #[test]
 fn test_token_creation() {

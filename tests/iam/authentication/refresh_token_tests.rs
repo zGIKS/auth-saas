@@ -1,7 +1,7 @@
-use asphanyx::iam::authentication::application::command_services::authentication_command_service_impl::AuthenticationCommandServiceImpl;
-use asphanyx::iam::authentication::domain::model::commands::refresh_token_command::RefreshTokenCommand;
-use asphanyx::iam::authentication::domain::model::value_objects::{token::Token, refresh_token::RefreshToken};
-use asphanyx::iam::authentication::domain::services::authentication_command_service::AuthenticationCommandService;
+use auth_service::iam::authentication::application::command_services::authentication_command_service_impl::AuthenticationCommandServiceImpl;
+use auth_service::iam::authentication::domain::model::commands::refresh_token_command::RefreshTokenCommand;
+use auth_service::iam::authentication::domain::model::value_objects::{token::Token, refresh_token::RefreshToken};
+use auth_service::iam::authentication::domain::services::authentication_command_service::AuthenticationCommandService;
 use uuid::Uuid;
 use crate::iam::authentication::test_mocks::{MockIdentityFacadeShim, MockTokenServiceShim, MockSessionRepositoryShim, MockAccountLockoutVerifierShim};
 
