@@ -83,6 +83,9 @@ pub async fn health() -> StatusCode {
     post,
     path = "/api/v1/tenancy/admin/tenants",
     tag = "tenancy",
+    security(
+        ("bearer_auth" = [])
+    ),
     request_body = CreateTenantSchemaResource,
     responses(
         (status = 201, description = "Tenant schema created", body = CreateTenantSchemaResponseResource),
@@ -170,6 +173,9 @@ pub async fn create_tenant_schema(
     delete,
     path = "/api/v1/tenancy/admin/tenants/{tenant_id}",
     tag = "tenancy",
+    security(
+        ("bearer_auth" = [])
+    ),
     params(
         ("tenant_id" = String, Path, description = "Tenant identifier")
     ),

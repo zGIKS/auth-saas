@@ -1,4 +1,5 @@
-use utoipa::OpenApi;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::{Modify, OpenApi, openapi};
 
 pub mod iam;
 pub mod messaging;
@@ -46,6 +47,7 @@ pub mod grpc {
             shared::interfaces::rest::error_response::ErrorResponse
         )
     ),
+    modifiers(&BearerSecurityAddon),
     tags(
         (name = "identity", description = "Identity management"),
         (name = "auth", description = "Authentication"),
@@ -53,3 +55,22 @@ pub mod grpc {
     )
 )]
 pub struct ApiDoc;
+
+struct BearerSecurityAddon;
+
+impl Modify for BearerSecurityAddon {
+    fn modify(&self, openapi_doc: &mut openapi::OpenApi) {
+        let components = openapi_doc
+            .components
+            .get_or_insert_with(openapi::Components::new);
+        components.add_security_scheme(
+            "bearer_auth",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .build(),
+            ),
+        );
+    }
+}
