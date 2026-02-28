@@ -3,7 +3,7 @@ use auth_service::iam::identity::domain::error::DomainError;
 /// Shared mocks for identity tests
 use auth_service::iam::identity::domain::model::aggregates::identity::Identity;
 use auth_service::iam::identity::domain::model::value_objects::{
-    email::Email, pending_identity::PendingIdentity,
+    email::Email, identity_id::IdentityId, pending_identity::PendingIdentity,
 };
 use auth_service::iam::identity::domain::repositories::{
     identity_repository::IdentityRepository,
@@ -24,6 +24,7 @@ mock! {
     impl IdentityRepository for IdentityRepository {
         fn save(&self, identity: Identity) -> impl Future<Output = Result<Identity, Box<dyn Error + Send + Sync>>> + Send;
         fn find_by_email(&self, email: &Email) -> impl Future<Output = Result<Option<Identity>, Box<dyn Error + Send + Sync>>> + Send;
+        fn find_by_id(&self, identity_id: &IdentityId) -> impl Future<Output = Result<Option<Identity>, Box<dyn Error + Send + Sync>>> + Send;
     }
 }
 

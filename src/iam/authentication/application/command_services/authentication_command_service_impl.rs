@@ -122,8 +122,14 @@ where
                     .reset_failure(&email, command.ip_address.as_deref())
                     .await?;
 
+                let role = self
+                    .identity_facade
+                    .find_role_by_user_id(uid)
+                    .await?
+                    .ok_or("User not found")?;
+
                 // Generate token and get its JTI
-                let (token, jti) = self.token_service.generate_token(uid)?;
+                let (token, jti) = self.token_service.generate_token(uid, &role)?;
                 let refresh_token = self.token_service.generate_refresh_token()?;
 
                 // Pass JTI to create_session
@@ -164,13 +170,19 @@ where
             .await?
             .ok_or("Invalid or expired refresh token")?;
 
+        let role = self
+            .identity_facade
+            .find_role_by_user_id(user_id)
+            .await?
+            .ok_or("User not found")?;
+
         // Rotation: Revoke old token
         self.session_repository
             .delete_refresh_token(&refresh_token)
             .await?;
 
         // Generate new pair
-        let (new_token, new_jti) = self.token_service.generate_token(user_id)?;
+        let (new_token, new_jti) = self.token_service.generate_token(user_id, &role)?;
         let new_refresh_token = self.token_service.generate_refresh_token()?;
 
         // Save using JTI

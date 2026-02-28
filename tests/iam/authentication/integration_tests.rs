@@ -25,13 +25,18 @@ async fn test_complete_authentication_flow() {
         .expect_verify_credentials()
         .times(1)
         .returning(move |_, _| Ok(Some(user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     let token_clone = token.clone();
     let jti_clone = jti.clone();
     mock_token_service
         .expect_generate_token()
         .times(1)
-        .returning(move |_| Ok((token_clone.clone(), jti_clone.clone())));
+        .returning(move |_, _| Ok((token_clone.clone(), jti_clone.clone())));
 
     let refresh_token_clone = refresh_token.clone();
     mock_token_service
@@ -88,6 +93,11 @@ async fn test_multiple_signin_attempts_same_user() {
         .expect_verify_credentials()
         .times(1)
         .returning(move |_, _| Ok(Some(user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     let token1 = Token::new("session_token_1".to_string());
     let jti1 = "jti-1".to_string();
@@ -96,7 +106,7 @@ async fn test_multiple_signin_attempts_same_user() {
     mock_token_service
         .expect_generate_token()
         .times(1)
-        .returning(move |_| Ok((token1_clone.clone(), jti1_clone.clone())));
+        .returning(move |_, _| Ok((token1_clone.clone(), jti1_clone.clone())));
 
     let refresh_token1 = RefreshToken::new("refresh_token_1".to_string());
     let refresh_token1_clone = refresh_token1.clone();
@@ -157,6 +167,11 @@ async fn test_signin_with_acl_boundary() {
         )
         .times(1)
         .returning(move |_, _| Ok(Some(user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     let token = Token::new("acl_token".to_string());
     let jti = "jti-acl".to_string();
@@ -165,7 +180,7 @@ async fn test_signin_with_acl_boundary() {
     mock_token_service
         .expect_generate_token()
         .times(1)
-        .returning(move |_| Ok((token_clone.clone(), jti_clone.clone())));
+        .returning(move |_, _| Ok((token_clone.clone(), jti_clone.clone())));
 
     let refresh_token = RefreshToken::new("acl_refresh_token".to_string());
     let refresh_token_clone = refresh_token.clone();
@@ -220,13 +235,21 @@ async fn test_signin_preserves_user_id() {
         .expect_verify_credentials()
         .times(1)
         .returning(move |_, _| Ok(Some(expected_user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(expected_user_id))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     // Verify token generation receives correct user_id
     mock_token_service
         .expect_generate_token()
-        .with(mockall::predicate::eq(expected_user_id))
+        .with(
+            mockall::predicate::eq(expected_user_id),
+            mockall::predicate::eq("user"),
+        )
         .times(1)
-        .returning(|_| Ok((Token::new("token".to_string()), "jti".to_string())));
+        .returning(|_, _| Ok((Token::new("token".to_string()), "jti".to_string())));
 
     mock_token_service
         .expect_generate_refresh_token()

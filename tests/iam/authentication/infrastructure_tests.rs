@@ -9,6 +9,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 struct Claims {
     sub: String,
+    role: String,
     exp: usize,
     jti: String,
 }
@@ -86,7 +87,7 @@ fn test_jwt_token_service_generation() {
     let user_id = Uuid::new_v4();
 
     // 1. Generate Token
-    let result = service.generate_token(user_id);
+    let result = service.generate_token(user_id, "user");
     assert!(result.is_ok());
     let (token, jti) = result.unwrap();
     assert!(!token.value().is_empty());
@@ -105,6 +106,7 @@ fn test_jwt_token_service_generation() {
     );
     let claims = token_data.unwrap().claims;
     assert_eq!(claims.sub, user_id.to_string());
+    assert_eq!(claims.role, "user");
     assert_eq!(claims.jti, jti);
     // Expiration is handled by generate_token (1 hour), just checking it exists
     assert!(claims.exp > 0);

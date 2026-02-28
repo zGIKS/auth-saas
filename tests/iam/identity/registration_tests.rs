@@ -31,6 +31,7 @@ mock! {
     impl IdentityRepository for IdentityRepository {
         fn save(&self, identity: Identity) -> impl Future<Output = Result<Identity, Box<dyn Error + Send + Sync>>> + Send;
         fn find_by_email(&self, email: &Email) -> impl Future<Output = Result<Option<Identity>, Box<dyn Error + Send + Sync>>> + Send;
+        fn find_by_id(&self, identity_id: &IdentityId) -> impl Future<Output = Result<Option<Identity>, Box<dyn Error + Send + Sync>>> + Send;
     }
 }
 

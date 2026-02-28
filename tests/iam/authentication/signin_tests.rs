@@ -29,14 +29,21 @@ async fn test_signin_success() {
             mockall::predicate::eq(password.clone()),
         )
         .returning(move |_, _| Ok(Some(user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .returning(|_| Ok(Some("user".to_string())));
 
     // Setup TokenService mock
     let token_clone = token.clone();
     let jti_clone = jti_string.clone();
     mock_token_service
         .expect_generate_token()
-        .with(mockall::predicate::eq(user_id))
-        .returning(move |_| Ok((token_clone.clone(), jti_clone.clone())));
+        .with(
+            mockall::predicate::eq(user_id),
+            mockall::predicate::eq("user"),
+        )
+        .returning(move |_, _| Ok((token_clone.clone(), jti_clone.clone())));
 
     let refresh_token_clone = refresh_token.clone();
     mock_token_service

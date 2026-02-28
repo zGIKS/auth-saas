@@ -32,15 +32,23 @@ async fn test_signin_success() {
         )
         .times(1)
         .returning(move |_, _| Ok(Some(user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     // 2. Token service generates JWT
     let token_clone = token.clone();
     let jti_clone = jti_string.clone();
     mock_token_service
         .expect_generate_token()
-        .with(mockall::predicate::eq(user_id))
+        .with(
+            mockall::predicate::eq(user_id),
+            mockall::predicate::eq("user"),
+        )
         .times(1)
-        .returning(move |_| Ok((token_clone.clone(), jti_clone.clone())));
+        .returning(move |_, _| Ok((token_clone.clone(), jti_clone.clone())));
 
     // 2b. Token service generates Refresh Token
     let refresh_token_clone = refresh_token.clone();
@@ -193,12 +201,17 @@ async fn test_signin_token_generation_error() {
         .expect_verify_credentials()
         .times(1)
         .returning(move |_, _| Ok(Some(user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     // Token generation fails
     mock_token_service
         .expect_generate_token()
         .times(1)
-        .returning(|_| Err("JWT signing failed".into()));
+        .returning(|_, _| Err("JWT signing failed".into()));
 
     // Session should NOT be created
 
@@ -242,13 +255,18 @@ async fn test_signin_session_creation_error() {
         .expect_verify_credentials()
         .times(1)
         .returning(move |_, _| Ok(Some(user_id)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     let token_clone = token.clone();
     let jti_clone = jti.clone();
     mock_token_service
         .expect_generate_token()
         .times(1)
-        .returning(move |_| Ok((token_clone.clone(), jti_clone.clone())));
+        .returning(move |_, _| Ok((token_clone.clone(), jti_clone.clone())));
 
     let refresh_token_clone = refresh_token.clone();
     mock_token_service
@@ -299,6 +317,11 @@ async fn test_signin_with_different_user_ids() {
         .expect_verify_credentials()
         .times(1)
         .returning(move |_, _| Ok(Some(user_id_1)));
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id_1))
+        .times(1)
+        .returning(|_| Ok(Some("user".to_string())));
 
     let token_1 = Token::new("token_for_user_1".to_string());
     let jti_1 = "jti-1".to_string();
@@ -306,9 +329,12 @@ async fn test_signin_with_different_user_ids() {
     let jti_1_clone = jti_1.clone();
     mock_token_service
         .expect_generate_token()
-        .with(mockall::predicate::eq(user_id_1))
+        .with(
+            mockall::predicate::eq(user_id_1),
+            mockall::predicate::eq("user"),
+        )
         .times(1)
-        .returning(move |_| Ok((token_1_clone.clone(), jti_1_clone.clone())));
+        .returning(move |_, _| Ok((token_1_clone.clone(), jti_1_clone.clone())));
 
     let refresh_token_1 = RefreshToken::new("refresh_token_1".to_string());
     let refresh_token_1_clone = refresh_token_1.clone();

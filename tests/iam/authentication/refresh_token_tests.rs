@@ -7,7 +7,7 @@ use crate::iam::authentication::test_mocks::{MockIdentityFacadeShim, MockTokenSe
 
 #[tokio::test]
 async fn test_refresh_token_success() {
-    let mock_identity_facade = MockIdentityFacadeShim::new();
+    let mut mock_identity_facade = MockIdentityFacadeShim::new();
     let mut mock_token_service = MockTokenServiceShim::new();
     let mut mock_session_repository = MockSessionRepositoryShim::new();
     let mock_account_lockout = MockAccountLockoutVerifierShim::new();
@@ -37,13 +37,21 @@ async fn test_refresh_token_success() {
         .with(mockall::predicate::eq(old_rt_clone_2))
         .returning(|_| Ok(()));
 
+    mock_identity_facade
+        .expect_find_role_by_user_id()
+        .with(mockall::predicate::eq(user_id))
+        .returning(|_| Ok(Some("user".to_string())));
+
     // Mock: Generate New Token
     let new_token_clone = new_token.clone();
     let new_jti_clone = new_jti_str.clone();
     mock_token_service
         .expect_generate_token()
-        .with(mockall::predicate::eq(user_id))
-        .returning(move |_| Ok((new_token_clone.clone(), new_jti_clone.clone())));
+        .with(
+            mockall::predicate::eq(user_id),
+            mockall::predicate::eq("user"),
+        )
+        .returning(move |_, _| Ok((new_token_clone.clone(), new_jti_clone.clone())));
 
     // Mock: Generate New Refresh Token
     let new_refresh_token_clone = new_refresh_token.clone();

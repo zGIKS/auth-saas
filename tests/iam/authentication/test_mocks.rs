@@ -18,6 +18,7 @@ use auth_service::shared::infrastructure::services::account_lockout::{
 mock! {
     pub IdentityFacadeShim {
         pub fn verify_credentials(&self, email: String, password: String) -> Result<Option<Uuid>, Box<dyn Error + Send + Sync>>;
+        pub fn find_role_by_user_id(&self, user_id: Uuid) -> Result<Option<String>, Box<dyn Error + Send + Sync>>;
         pub fn user_exists(&self, email: String) -> Result<bool, Box<dyn Error + Send + Sync>>;
     }
 }
@@ -35,6 +36,13 @@ impl IdentityFacade for MockIdentityFacadeShim {
     async fn user_exists(&self, email: String) -> Result<bool, Box<dyn Error + Send + Sync>> {
         self.user_exists(email)
     }
+
+    async fn find_role_by_user_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        self.find_role_by_user_id(user_id)
+    }
 }
 
 // Mock TokenService (synchronous, direct mock)
@@ -42,7 +50,7 @@ mock! {
     pub TokenServiceShim {}
 
     impl TokenService for TokenServiceShim {
-        fn generate_token(&self, user_id: Uuid) -> Result<(Token, String), Box<dyn Error + Send + Sync>>;
+        fn generate_token(&self, user_id: Uuid, role: &str) -> Result<(Token, String), Box<dyn Error + Send + Sync>>;
         fn generate_refresh_token(&self) -> Result<RefreshToken, Box<dyn Error + Send + Sync>>;
         fn validate_token(&self, token: &str) -> Result<Claims, Box<dyn Error + Send + Sync>>;
     }

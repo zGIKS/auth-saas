@@ -3,6 +3,7 @@ use crate::iam::identity::domain::{
         aggregates::identity::Identity as DomainIdentity,
         value_objects::{
             auth_provider::AuthProvider, email::Email, identity_id::IdentityId, password::Password,
+            role::Role,
         },
     },
     repositories::identity_repository::IdentityRepository,
@@ -64,17 +65,53 @@ impl IdentityRepository for IdentityRepositoryImpl {
                     Email::new(m.email).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
                 let provider = AuthProvider::from_str(&m.auth_provider)
                     .map_err(Box::<dyn Error + Send + Sync>::from)?;
+                let role = Role::new(m.role).map_err(Box::<dyn Error + Send + Sync>::from)?;
 
                 let audit = AuditableModel {
                     created_at: m.created_at.into(),
                     updated_at: m.updated_at.into(),
                 };
 
-                Ok(Some(DomainIdentity::new(
+                Ok(Some(DomainIdentity::new_with_role(
                     IdentityId::from_uuid(m.id),
                     email,
                     Password::new(m.password_hash).map_err(Box::<dyn Error + Send + Sync>::from)?,
                     provider,
+                    role,
+                    audit,
+                )))
+            }
+            None => Ok(None),
+        }
+    }
+
+    async fn find_by_id(
+        &self,
+        identity_id: &IdentityId,
+    ) -> Result<Option<DomainIdentity>, Box<dyn Error + Send + Sync>> {
+        let model = IdentityEntity::find_by_id(identity_id.value())
+            .one(&self.db)
+            .await?;
+
+        match model {
+            Some(m) => {
+                let email =
+                    Email::new(m.email).map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+                let provider = AuthProvider::from_str(&m.auth_provider)
+                    .map_err(Box::<dyn Error + Send + Sync>::from)?;
+                let role = Role::new(m.role).map_err(Box::<dyn Error + Send + Sync>::from)?;
+
+                let audit = AuditableModel {
+                    created_at: m.created_at.into(),
+                    updated_at: m.updated_at.into(),
+                };
+
+                Ok(Some(DomainIdentity::new_with_role(
+                    IdentityId::from_uuid(m.id),
+                    email,
+                    Password::new(m.password_hash).map_err(Box::<dyn Error + Send + Sync>::from)?,
+                    provider,
+                    role,
                     audit,
                 )))
             }
@@ -90,6 +127,7 @@ impl IdentityRepositoryImpl {
             email: Set(identity.email().value().to_string()),
             password_hash: Set(identity.password().value().to_string()),
             auth_provider: Set(identity.provider().to_string()),
+            role: Set(identity.role().value().to_string()),
             created_at: Set(identity.audit().created_at.into()),
             updated_at: Set(identity.audit().updated_at.into()),
         }

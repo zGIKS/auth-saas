@@ -1,4 +1,4 @@
-use crate::iam::identity::domain::model::value_objects::email::Email;
+use crate::iam::identity::domain::model::value_objects::{email::Email, identity_id::IdentityId};
 use crate::iam::identity::domain::repositories::identity_repository::IdentityRepository;
 use crate::iam::identity::interfaces::acl::identity_facade::IdentityFacade;
 use bcrypt::verify;
@@ -55,6 +55,18 @@ impl<R: IdentityRepository> IdentityFacade for IdentityFacadeImpl<R> {
         match self.repository.find_by_email(&email_vo).await {
             Ok(Some(_)) => Ok(true),
             Ok(None) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn find_role_by_user_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+        let identity_id = IdentityId::from_uuid(user_id);
+        match self.repository.find_by_id(&identity_id).await {
+            Ok(Some(identity)) => Ok(Some(identity.role().value().to_string())),
+            Ok(None) => Ok(None),
             Err(e) => Err(e),
         }
     }

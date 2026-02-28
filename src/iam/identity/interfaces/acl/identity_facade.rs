@@ -9,6 +9,10 @@ pub trait IdentityFacade: Send + Sync {
         email: String,
         password: String,
     ) -> Result<Option<Uuid>, Box<dyn Error + Send + Sync>>;
+    async fn find_role_by_user_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<String>, Box<dyn Error + Send + Sync>>;
 
     async fn user_exists(&self, email: String) -> Result<bool, Box<dyn Error + Send + Sync>>;
 }

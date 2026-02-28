@@ -79,12 +79,12 @@ where
             .await
             .map_err(|e| FederationError::Internal(e.to_string()))?;
 
-        let user_id = match existing_identity {
+        let (user_id, role) = match existing_identity {
             Some(identity) => {
                 if identity.provider() != &AuthProvider::Google {
                     return Err(FederationError::ProviderMismatch);
                 }
-                identity.id().value()
+                (identity.id().value(), identity.role().value().to_string())
             }
             None => {
                 let mut random_bytes = [0u8; 16];
@@ -112,13 +112,13 @@ where
                     .await
                     .map_err(|e| FederationError::Internal(e.to_string()))?;
 
-                persisted.id().value()
+                (persisted.id().value(), persisted.role().value().to_string())
             }
         };
 
         let (token, jti) = self
             .token_service
-            .generate_token(user_id)
+            .generate_token(user_id, &role)
             .map_err(|e| FederationError::Internal(e.to_string()))?;
 
         let refresh_token = self

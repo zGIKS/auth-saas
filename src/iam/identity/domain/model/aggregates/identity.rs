@@ -1,6 +1,7 @@
 use crate::iam::identity::domain::model::commands::register_identity_command::RegisterIdentityCommand;
 use crate::iam::identity::domain::model::value_objects::{
     auth_provider::AuthProvider, email::Email, identity_id::IdentityId, password::Password,
+    role::Role,
 };
 use crate::shared::domain::model::entities::auditable_model::AuditableModel;
 
@@ -10,6 +11,7 @@ pub struct Identity {
     email: Email,
     password: Password,
     provider: AuthProvider,
+    role: Role,
     audit: AuditableModel,
 }
 
@@ -21,11 +23,23 @@ impl Identity {
         provider: AuthProvider,
         audit: AuditableModel,
     ) -> Self {
+        Self::new_with_role(id, email, password, provider, Role::default_user(), audit)
+    }
+
+    pub fn new_with_role(
+        id: IdentityId,
+        email: Email,
+        password: Password,
+        provider: AuthProvider,
+        role: Role,
+        audit: AuditableModel,
+    ) -> Self {
         Self {
             id,
             email,
             password,
             provider,
+            role,
             audit,
         }
     }
@@ -36,6 +50,7 @@ impl Identity {
             email: command.email,
             password: command.password,
             provider: command.provider,
+            role: Role::default_user(),
             audit: AuditableModel::new(),
         }
     }
@@ -54,6 +69,10 @@ impl Identity {
 
     pub fn provider(&self) -> &AuthProvider {
         &self.provider
+    }
+
+    pub fn role(&self) -> &Role {
+        &self.role
     }
 
     pub fn change_password(&mut self, new_password: Password) {

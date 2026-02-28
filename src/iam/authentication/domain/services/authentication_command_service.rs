@@ -14,6 +14,7 @@ pub trait TokenService: Send + Sync {
     fn generate_token(
         &self,
         user_id: Uuid,
+        role: &str,
     ) -> Result<(Token, String), Box<dyn Error + Send + Sync>>;
     fn generate_refresh_token(&self) -> Result<RefreshToken, Box<dyn Error + Send + Sync>>;
     // New validation method

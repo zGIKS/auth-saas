@@ -13,9 +13,15 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 struct JwtClaims {
     sub: String,
+    #[serde(default = "default_role")]
+    role: String,
     exp: usize,
     jti: String,
     iat: usize,
+}
+
+fn default_role() -> String {
+    "user".to_string()
 }
 
 pub struct JwtTokenService {
@@ -36,6 +42,7 @@ impl TokenService for JwtTokenService {
     fn generate_token(
         &self,
         user_id: Uuid,
+        role: &str,
     ) -> Result<(Token, String), Box<dyn Error + Send + Sync>> {
         let now = Utc::now();
         let expiration = now
@@ -49,6 +56,7 @@ impl TokenService for JwtTokenService {
 
         let claims = JwtClaims {
             sub: user_id.to_string(),
+            role: role.to_string(),
             exp: expiration as usize,
             jti: jti.clone(),
             iat,
@@ -83,6 +91,7 @@ impl TokenService for JwtTokenService {
 
         Ok(Claims {
             sub,
+            role: token_data.claims.role,
             exp: token_data.claims.exp,
             jti: token_data.claims.jti,
             iat: token_data.claims.iat,

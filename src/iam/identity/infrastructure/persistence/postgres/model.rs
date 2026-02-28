@@ -9,6 +9,7 @@ pub struct Model {
     pub email: String,
     pub password_hash: String,
     pub auth_provider: String,
+    pub role: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,
 }

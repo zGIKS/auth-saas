@@ -3,4 +3,5 @@ pub mod email;
 pub mod identity_id;
 pub mod password;
 pub mod pending_identity;
+pub mod role;
 pub mod verification_token;
