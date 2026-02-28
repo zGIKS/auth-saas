@@ -11,8 +11,12 @@ use crate::iam::authentication::domain::{
     },
 };
 use crate::iam::identity::interfaces::acl::identity_facade::IdentityFacade;
+use crate::iam::tenancy::interfaces::acl::tenancy_facade::{
+    TenancyFacade, TenantOAuthConfigurationContextAcl, TenantSchemaContextAcl,
+};
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutVerifier;
 use std::error::Error;
+use uuid::Uuid;
 
 #[derive(Clone, Copy)]
 pub struct LockoutPolicy {
@@ -43,14 +47,46 @@ impl Default for LockoutPolicy {
     }
 }
 
-pub struct AuthenticationCommandServiceImpl<F, T, S, L>
+pub struct NoopTenancyFacade;
+
+#[async_trait::async_trait]
+impl TenancyFacade for NoopTenancyFacade {
+    async fn resolve_access_context(
+        &self,
+        _user_id: Uuid,
+        _tenant_anon_key: String,
+    ) -> Result<
+        Option<crate::iam::tenancy::interfaces::acl::tenancy_facade::TenantAccessContextAcl>,
+        Box<dyn Error + Send + Sync>,
+    > {
+        Ok(None)
+    }
+
+    async fn resolve_schema_by_anon_key(
+        &self,
+        _tenant_anon_key: String,
+    ) -> Result<Option<TenantSchemaContextAcl>, Box<dyn Error + Send + Sync>> {
+        Ok(None)
+    }
+
+    async fn resolve_oauth_configuration_by_anon_key(
+        &self,
+        _tenant_anon_key: String,
+    ) -> Result<Option<TenantOAuthConfigurationContextAcl>, Box<dyn Error + Send + Sync>> {
+        Ok(None)
+    }
+}
+
+pub struct AuthenticationCommandServiceImpl<F, G, T, S, L>
 where
     F: IdentityFacade,
+    G: TenancyFacade,
     T: TokenService,
     S: SessionRepository,
     L: AccountLockoutVerifier,
 {
     identity_facade: F,
+    tenancy_facade: G,
     token_service: T,
     session_repository: S,
     account_lockout_service: L,
@@ -58,7 +94,40 @@ where
     lockout_policy: LockoutPolicy,
 }
 
-impl<F, T, S, L> AuthenticationCommandServiceImpl<F, T, S, L>
+impl<F, G, T, S, L> AuthenticationCommandServiceImpl<F, G, T, S, L>
+where
+    F: IdentityFacade,
+    G: TenancyFacade,
+    T: TokenService,
+    S: SessionRepository,
+    L: AccountLockoutVerifier,
+{
+    pub fn new_with_tenancy(
+        identity_facade: F,
+        tenancy_facade: G,
+        token_service: T,
+        session_repository: S,
+        account_lockout_service: L,
+        refresh_token_duration_seconds: u64,
+    ) -> Self {
+        Self {
+            identity_facade,
+            tenancy_facade,
+            token_service,
+            session_repository,
+            account_lockout_service,
+            refresh_token_duration_seconds,
+            lockout_policy: LockoutPolicy::default(),
+        }
+    }
+
+    pub fn with_lockout_policy(mut self, lockout_policy: LockoutPolicy) -> Self {
+        self.lockout_policy = lockout_policy;
+        self
+    }
+}
+
+impl<F, T, S, L> AuthenticationCommandServiceImpl<F, NoopTenancyFacade, T, S, L>
 where
     F: IdentityFacade,
     T: TokenService,
@@ -74,6 +143,7 @@ where
     ) -> Self {
         Self {
             identity_facade,
+            tenancy_facade: NoopTenancyFacade,
             token_service,
             session_repository,
             account_lockout_service,
@@ -81,17 +151,13 @@ where
             lockout_policy: LockoutPolicy::default(),
         }
     }
-
-    pub fn with_lockout_policy(mut self, lockout_policy: LockoutPolicy) -> Self {
-        self.lockout_policy = lockout_policy;
-        self
-    }
 }
 
 #[async_trait::async_trait]
-impl<F, T, S, L> AuthenticationCommandService for AuthenticationCommandServiceImpl<F, T, S, L>
+impl<F, G, T, S, L> AuthenticationCommandService for AuthenticationCommandServiceImpl<F, G, T, S, L>
 where
     F: IdentityFacade,
+    G: TenancyFacade,
     T: TokenService,
     S: SessionRepository,
     L: AccountLockoutVerifier,
@@ -122,14 +188,27 @@ where
                     .reset_failure(&email, command.ip_address.as_deref())
                     .await?;
 
-                let role = self
-                    .identity_facade
-                    .find_role_by_user_id(uid)
-                    .await?
-                    .ok_or("User not found")?;
+                let access_context = self
+                    .tenancy_facade
+                    .resolve_access_context(uid, command.tenant_anon_key)
+                    .await?;
+
+                let (tenant_id, role) = match access_context {
+                    Some(context) => (context.tenant_id, context.role),
+                    None => {
+                        let fallback_role = self
+                            .identity_facade
+                            .find_role_by_user_id(uid)
+                            .await?
+                            .ok_or("Invalid tenant access")?;
+                        (Uuid::nil(), fallback_role)
+                    }
+                };
 
                 // Generate token and get its JTI
-                let (token, jti) = self.token_service.generate_token(uid, &role)?;
+                let (token, jti) = self
+                    .token_service
+                    .generate_token_with_tenant(uid, tenant_id, &role)?;
                 let refresh_token = self.token_service.generate_refresh_token()?;
 
                 // Pass JTI to create_session
@@ -170,11 +249,22 @@ where
             .await?
             .ok_or("Invalid or expired refresh token")?;
 
-        let role = self
-            .identity_facade
-            .find_role_by_user_id(user_id)
-            .await?
-            .ok_or("User not found")?;
+        let access_context = self
+            .tenancy_facade
+            .resolve_access_context(user_id, command.tenant_anon_key)
+            .await?;
+
+        let (tenant_id, role) = match access_context {
+            Some(context) => (context.tenant_id, context.role),
+            None => {
+                let fallback_role = self
+                    .identity_facade
+                    .find_role_by_user_id(user_id)
+                    .await?
+                    .ok_or("Invalid tenant access")?;
+                (Uuid::nil(), fallback_role)
+            }
+        };
 
         // Rotation: Revoke old token
         self.session_repository
@@ -182,7 +272,9 @@ where
             .await?;
 
         // Generate new pair
-        let (new_token, new_jti) = self.token_service.generate_token(user_id, &role)?;
+        let (new_token, new_jti) = self
+            .token_service
+            .generate_token_with_tenant(user_id, tenant_id, &role)?;
         let new_refresh_token = self.token_service.generate_refresh_token()?;
 
         // Save using JTI

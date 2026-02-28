@@ -59,6 +59,7 @@ where
     pub async fn authenticate(
         &self,
         code: String,
+        tenant_id: uuid::Uuid,
     ) -> Result<(Token, RefreshToken), FederationError> {
         if code.trim().is_empty() {
             return Err(FederationError::InvalidAuthorizationCode);
@@ -118,7 +119,7 @@ where
 
         let (token, jti) = self
             .token_service
-            .generate_token(user_id, &role)
+            .generate_token_with_tenant(user_id, tenant_id, &role)
             .map_err(|e| FederationError::Internal(e.to_string()))?;
 
         let refresh_token = self

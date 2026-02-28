@@ -115,6 +115,7 @@ mod tests {
             match self.mode {
                 FakeMode::Valid => Ok(Claims {
                     sub: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+                    tid: Uuid::parse_str("660e8400-e29b-41d4-a716-446655440000").unwrap(),
                     role: "user".to_string(),
                     exp: 1_900_000_000,
                     jti: "jti-123".to_string(),

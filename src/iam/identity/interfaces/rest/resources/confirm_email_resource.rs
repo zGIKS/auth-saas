@@ -10,6 +10,8 @@ pub struct ConfirmEmailQueryParams {
     /// Verification token from email link
     #[validate(length(min = 32, message = "Invalid token format"))]
     pub token: String,
+    #[validate(length(min = 10, message = "Invalid tenant key format"))]
+    pub tenant_anon_key: Option<String>,
 }
 
 /// Success response (used internally, actual response is HTTP redirect)

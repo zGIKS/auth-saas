@@ -185,6 +185,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route(
             "/api/v1/identity/reset-password",
             post(iam::identity::interfaces::rest::controllers::identity_controller::reset_password),
+        )
+        .route(
+            "/api/v1/tenancy/health",
+            get(iam::tenancy::interfaces::rest::controllers::tenancy_controller::health),
+        )
+        .route(
+            "/api/v1/tenancy/admin/tenants",
+            post(iam::tenancy::interfaces::rest::controllers::tenancy_controller::create_tenant_schema),
+        )
+        .route(
+            "/api/v1/tenancy/admin/tenants/:tenant_id",
+            axum::routing::delete(
+                iam::tenancy::interfaces::rest::controllers::tenancy_controller::delete_tenant_schema,
+            ),
         );
 
     let app = if app_env == "dev" {

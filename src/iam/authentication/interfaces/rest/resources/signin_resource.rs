@@ -10,6 +10,9 @@ pub struct SigninResource {
     #[validate(length(min = 6))]
     #[schema(example = "string")]
     pub password: String,
+    #[validate(length(min = 10))]
+    #[schema(example = "pk_tenant_acme_001")]
+    pub tenant_anon_key: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]

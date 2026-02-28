@@ -41,6 +41,40 @@ use crate::messaging::infrastructure::services::smtp_email_sender::SmtpEmailSend
 use crate::messaging::application::command_services::messaging_command_service_impl::MessagingCommandServiceImpl;
 use crate::messaging::application::acl::messaging_facade_impl::MessagingFacadeImpl;
 use crate::iam::identity::application::outbound::acl::email_service::EmailService;
+use crate::iam::tenancy::{
+    application::{
+        acl::tenancy_facade_impl::TenancyFacadeImpl,
+        query_services::tenancy_query_service_impl::TenancyQueryServiceImpl,
+    },
+    infrastructure::persistence::postgres::repositories::{
+        membership_repository_impl::MembershipRepositoryImpl, tenant_repository_impl::TenantRepositoryImpl,
+    },
+    interfaces::acl::tenancy_facade::TenancyFacade,
+};
+use std::sync::Arc;
+
+async fn resolve_target_schema(
+    state: &AppState,
+    tenant_anon_key: Option<String>,
+) -> Result<String, String> {
+    let Some(tenant_anon_key) = tenant_anon_key else {
+        return Ok("public".to_string());
+    };
+
+    let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
+    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
+    let tenancy_query_service =
+        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
+
+    let resolved = tenancy_facade
+        .resolve_schema_by_anon_key(tenant_anon_key)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Invalid tenant_anon_key".to_string())?;
+
+    Ok(resolved.schema_name)
+}
 
 #[utoipa::path(
     post,
@@ -76,9 +110,23 @@ pub async fn register_identity(
     // Default values: Provider = Email
     let provider = AuthProvider::Email;
 
-    let command = RegisterIdentityCommand::new(email, password, provider);
+    let schema_name = match resolve_target_schema(&state, payload.tenant_anon_key.clone()).await {
+        Ok(schema_name) => schema_name,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
+    let command = RegisterIdentityCommand::new_with_tenant(
+        email,
+        password,
+        provider,
+        payload.tenant_anon_key.clone(),
+    );
+
+    let identity_repo = match IdentityRepositoryImpl::new_with_schema(state.db.clone(), schema_name)
+    {
+        Ok(repo) => repo,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
     let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
     let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
 
@@ -187,7 +235,36 @@ pub async fn confirm_registration(
     // Use existing command for backward compatibility
     let command = ConfirmRegistrationCommand::new(query.token);
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db);
+    let schema_name = match resolve_target_schema(&state, params.tenant_anon_key.clone()).await {
+        Ok(schema_name) => schema_name,
+        Err(error) => {
+            let error_url = format!(
+                "{}/email-verification-failed?error=invalid_tenant&message={}",
+                state
+                    .frontend_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:3000"),
+                urlencoding::encode(&error)
+            );
+            return Redirect::to(&error_url).into_response();
+        }
+    };
+
+    let identity_repo = match IdentityRepositoryImpl::new_with_schema(state.db.clone(), schema_name)
+    {
+        Ok(repo) => repo,
+        Err(error) => {
+            let error_url = format!(
+                "{}/email-verification-failed?error=invalid_tenant&message={}",
+                state
+                    .frontend_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:3000"),
+                urlencoding::encode(&error)
+            );
+            return Redirect::to(&error_url).into_response();
+        }
+    };
     let pending_repo = PendingIdentityRepositoryImpl::new(state.redis.clone());
     let password_reset_repo = PasswordResetTokenRepositoryImpl::new(state.redis.clone());
 

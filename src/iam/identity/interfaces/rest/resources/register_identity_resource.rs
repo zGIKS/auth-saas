@@ -12,6 +12,8 @@ pub struct RegisterIdentityRequest {
         message = "Password must be between 6 and 72 characters"
     ))]
     pub password: String,
+    #[validate(length(min = 10))]
+    pub tenant_anon_key: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]

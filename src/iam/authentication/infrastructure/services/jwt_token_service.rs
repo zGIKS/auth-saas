@@ -13,6 +13,8 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize)]
 struct JwtClaims {
     sub: String,
+    #[serde(default = "default_tenant_id")]
+    tid: String,
     #[serde(default = "default_role")]
     role: String,
     exp: usize,
@@ -22,6 +24,10 @@ struct JwtClaims {
 
 fn default_role() -> String {
     "user".to_string()
+}
+
+fn default_tenant_id() -> String {
+    Uuid::nil().to_string()
 }
 
 pub struct JwtTokenService {
@@ -44,6 +50,15 @@ impl TokenService for JwtTokenService {
         user_id: Uuid,
         role: &str,
     ) -> Result<(Token, String), Box<dyn Error + Send + Sync>> {
+        self.generate_token_with_tenant(user_id, Uuid::nil(), role)
+    }
+
+    fn generate_token_with_tenant(
+        &self,
+        user_id: Uuid,
+        tenant_id: Uuid,
+        role: &str,
+    ) -> Result<(Token, String), Box<dyn Error + Send + Sync>> {
         let now = Utc::now();
         let expiration = now
             .checked_add_signed(Duration::seconds(self.duration_seconds as i64))
@@ -56,6 +71,7 @@ impl TokenService for JwtTokenService {
 
         let claims = JwtClaims {
             sub: user_id.to_string(),
+            tid: tenant_id.to_string(),
             role: role.to_string(),
             exp: expiration as usize,
             jti: jti.clone(),
@@ -88,9 +104,12 @@ impl TokenService for JwtTokenService {
 
         let sub = Uuid::parse_str(&token_data.claims.sub)
             .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
+        let tid = Uuid::parse_str(&token_data.claims.tid)
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
 
         Ok(Claims {
             sub,
+            tid,
             role: token_data.claims.role,
             exp: token_data.claims.exp,
             jti: token_data.claims.jti,

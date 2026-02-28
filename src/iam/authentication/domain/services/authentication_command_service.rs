@@ -16,6 +16,15 @@ pub trait TokenService: Send + Sync {
         user_id: Uuid,
         role: &str,
     ) -> Result<(Token, String), Box<dyn Error + Send + Sync>>;
+    fn generate_token_with_tenant(
+        &self,
+        user_id: Uuid,
+        tenant_id: Uuid,
+        role: &str,
+    ) -> Result<(Token, String), Box<dyn Error + Send + Sync>> {
+        let _ = tenant_id;
+        self.generate_token(user_id, role)
+    }
     fn generate_refresh_token(&self) -> Result<RefreshToken, Box<dyn Error + Send + Sync>>;
     // New validation method
     fn validate_token(&self, token: &str) -> Result<Claims, Box<dyn Error + Send + Sync>>;

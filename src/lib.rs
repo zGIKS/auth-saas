@@ -18,6 +18,8 @@ pub mod grpc {
         iam::authentication::interfaces::rest::controllers::authentication_controller::logout,
         iam::authentication::interfaces::rest::controllers::authentication_controller::refresh_token,
         iam::authentication::interfaces::rest::controllers::authentication_controller::verify_token,
+        iam::tenancy::interfaces::rest::controllers::tenancy_controller::create_tenant_schema,
+        iam::tenancy::interfaces::rest::controllers::tenancy_controller::delete_tenant_schema,
         iam::federation::interfaces::rest::controllers::google_controller::redirect_to_google,
         iam::federation::interfaces::rest::controllers::google_controller::google_callback
     ),
@@ -36,13 +38,18 @@ pub mod grpc {
             iam::authentication::interfaces::rest::resources::refresh_token_resource::RefreshTokenResource,
             iam::authentication::interfaces::rest::resources::verify_token_resource::VerifyTokenResource,
             iam::authentication::interfaces::rest::resources::verify_token_resource::VerifyTokenResponse,
+            iam::tenancy::interfaces::rest::resources::create_tenant_schema_resource::CreateTenantSchemaResource,
+            iam::tenancy::interfaces::rest::resources::create_tenant_schema_resource::CreateTenantSchemaResponseResource,
+            iam::tenancy::interfaces::rest::resources::delete_tenant_schema_resource::DeleteTenantSchemaResponseResource,
             iam::federation::interfaces::rest::resources::google_callback_query::GoogleCallbackQuery,
+            iam::federation::interfaces::rest::resources::google_authorize_query_resource::GoogleAuthorizeQueryResource,
             shared::interfaces::rest::error_response::ErrorResponse
         )
     ),
     tags(
         (name = "identity", description = "Identity management"),
-        (name = "auth", description = "Authentication")
+        (name = "auth", description = "Authentication"),
+        (name = "tenancy", description = "Tenant schema provisioning and keys")
     )
 )]
 pub struct ApiDoc;

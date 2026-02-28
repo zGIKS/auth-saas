@@ -27,6 +27,17 @@ use crate::iam::identity::{
     application::acl::identity_facade_impl::IdentityFacadeImpl,
     infrastructure::persistence::postgres::repositories::identity_repository_impl::IdentityRepositoryImpl,
 };
+use crate::iam::tenancy::{
+    application::{
+        acl::tenancy_facade_impl::TenancyFacadeImpl,
+        query_services::tenancy_query_service_impl::TenancyQueryServiceImpl,
+    },
+    infrastructure::persistence::postgres::repositories::{
+        membership_repository_impl::MembershipRepositoryImpl,
+        tenant_repository_impl::TenantRepositoryImpl,
+    },
+    interfaces::acl::tenancy_facade::TenancyFacade,
+};
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutService;
 use crate::shared::interfaces::rest::app_state::AppState;
 use crate::shared::interfaces::rest::error_response::ErrorResponse;
@@ -37,7 +48,31 @@ use axum::{
     response::IntoResponse,
 };
 use std::net::SocketAddr;
+use std::sync::Arc;
 use validator::Validate;
+
+async fn resolve_auth_schema(
+    state: &AppState,
+    tenant_anon_key: Option<String>,
+) -> Result<String, String> {
+    let Some(tenant_anon_key) = tenant_anon_key else {
+        return Ok("public".to_string());
+    };
+
+    let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
+    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
+    let tenancy_query_service =
+        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
+
+    let resolved = tenancy_facade
+        .resolve_schema_by_anon_key(tenant_anon_key)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Invalid tenant_anon_key".to_string())?;
+
+    Ok(resolved.schema_name)
+}
 
 #[utoipa::path(
     post,
@@ -63,16 +98,31 @@ pub async fn signin(
     // Extract IP from ConnectInfo
     let ip_address = Some(addr.ip().to_string());
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
+    let schema_name = match resolve_auth_schema(&state, resource.tenant_anon_key.clone()).await {
+        Ok(schema_name) => schema_name,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
+
+    let identity_repo = match IdentityRepositoryImpl::new_with_schema(state.db.clone(), schema_name)
+    {
+        Ok(repo) => repo,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
+    let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
+    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
+    let tenancy_query_service =
+        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
     let lockout_service = AccountLockoutService::new(state.redis.clone());
 
-    let service = AuthenticationCommandServiceImpl::new(
+    let service = AuthenticationCommandServiceImpl::new_with_tenancy(
         identity_facade,
+        tenancy_facade,
         token_service,
         session_repo,
         lockout_service,
@@ -83,7 +133,14 @@ pub async fn signin(
         state.lockout_duration_seconds,
     ));
 
-    let command = SigninCommand::new(resource.email, resource.password, ip_address);
+    let command = SigninCommand::new_with_tenant(
+        resource.email,
+        resource.password,
+        resource
+            .tenant_anon_key
+            .unwrap_or_else(|| "pk_default_tenant".to_string()),
+        ip_address,
+    );
 
     match service.signin(command).await {
         Ok((token, refresh_token)) => (
@@ -124,14 +181,20 @@ pub async fn logout(
 
     let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
+    let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
+    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
+    let tenancy_query_service =
+        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
     let lockout_service = AccountLockoutService::new(state.redis.clone());
 
-    let service = AuthenticationCommandServiceImpl::new(
+    let service = AuthenticationCommandServiceImpl::new_with_tenancy(
         identity_facade,
+        tenancy_facade,
         token_service,
         session_repo,
         lockout_service,
@@ -174,16 +237,31 @@ pub async fn refresh_token(
         return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
     }
 
-    let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
+    let schema_name = match resolve_auth_schema(&state, resource.tenant_anon_key.clone()).await {
+        Ok(schema_name) => schema_name,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
+
+    let identity_repo = match IdentityRepositoryImpl::new_with_schema(state.db.clone(), schema_name)
+    {
+        Ok(repo) => repo,
+        Err(error) => return (StatusCode::BAD_REQUEST, error).into_response(),
+    };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
+    let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
+    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
+    let tenancy_query_service =
+        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
     let session_repo =
         RedisSessionRepository::new(state.redis.clone(), state.session_duration_seconds);
     let lockout_service = AccountLockoutService::new(state.redis.clone());
 
-    let service = AuthenticationCommandServiceImpl::new(
+    let service = AuthenticationCommandServiceImpl::new_with_tenancy(
         identity_facade,
+        tenancy_facade,
         token_service,
         session_repo,
         lockout_service,
@@ -194,7 +272,12 @@ pub async fn refresh_token(
         state.lockout_duration_seconds,
     ));
 
-    let command = RefreshTokenCommand::new(resource.refresh_token);
+    let command = RefreshTokenCommand::new_with_tenant(
+        resource.refresh_token,
+        resource
+            .tenant_anon_key
+            .unwrap_or_else(|| "pk_default_tenant".to_string()),
+    );
 
     match service.refresh_token(command).await {
         Ok((token, refresh_token)) => (
@@ -247,6 +330,8 @@ pub async fn verify_token(
             Json(VerifyTokenResponse {
                 is_valid: true,
                 sub: claims.sub,
+                tid: claims.tid,
+                role: claims.role,
                 error: None,
             }),
         )
@@ -259,6 +344,8 @@ pub async fn verify_token(
                 Json(VerifyTokenResponse {
                     is_valid: false,
                     sub: uuid::Uuid::nil(), // Placeholder
+                    tid: uuid::Uuid::nil(),
+                    role: String::new(),
                     error: Some(e.to_string()),
                 }),
             )

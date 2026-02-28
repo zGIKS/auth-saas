@@ -138,7 +138,16 @@ where
         let frontend_url = std::env::var("FRONTEND_URL")
             .map_err(|_| DomainError::InternalError("FRONTEND_URL must be set".to_string()))?;
         validate_frontend_url(&frontend_url)?;
-        let verification_link = format!("{}/verify?token={}", frontend_url, token.value());
+        let verification_link = if let Some(tenant_anon_key) = &command.tenant_anon_key {
+            format!(
+                "{}/verify?token={}&tenant_anon_key={}",
+                frontend_url,
+                token.value(),
+                urlencoding::encode(tenant_anon_key)
+            )
+        } else {
+            format!("{}/verify?token={}", frontend_url, token.value())
+        };
 
         self.notification_service
             .send_verification_email(command.email.value(), &verification_link)
@@ -174,6 +183,7 @@ where
             email,
             password,
             provider,
+            tenant_anon_key: None,
         };
 
         let identity = Identity::register(register_command);

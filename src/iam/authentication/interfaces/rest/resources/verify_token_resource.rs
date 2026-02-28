@@ -14,6 +14,8 @@ pub struct VerifyTokenResource {
 pub struct VerifyTokenResponse {
     pub is_valid: bool,
     pub sub: Uuid,
+    pub tid: Uuid,
+    pub role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
