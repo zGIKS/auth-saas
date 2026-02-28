@@ -1,17 +1,5 @@
-use crate::iam::tenancy::domain::{
-    error::DomainError,
-    model::{
-        queries::resolve_tenant_access_query::ResolveTenantAccessQuery,
-        value_objects::{membership_role::MembershipRole, tenant_id::TenantId},
-    },
-};
+use crate::iam::tenancy::domain::{error::DomainError, model::value_objects::tenant_id::TenantId};
 use async_trait::async_trait;
-
-#[derive(Debug, Clone)]
-pub struct TenantAccessContext {
-    pub tenant_id: TenantId,
-    pub role: MembershipRole,
-}
 
 #[derive(Debug, Clone)]
 pub struct TenantSchemaContext {
@@ -30,11 +18,6 @@ pub struct TenantOAuthConfigurationContext {
 
 #[async_trait]
 pub trait TenancyQueryService: Send + Sync {
-    async fn handle(
-        &self,
-        query: ResolveTenantAccessQuery,
-    ) -> Result<Option<TenantAccessContext>, DomainError>;
-
     async fn resolve_tenant_schema(
         &self,
         query: crate::iam::tenancy::domain::model::queries::resolve_tenant_schema_query::ResolveTenantSchemaQuery,

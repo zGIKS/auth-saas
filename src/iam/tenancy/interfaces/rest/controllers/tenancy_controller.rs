@@ -16,6 +16,7 @@ use crate::iam::{
             model::commands::{
                 create_tenant_schema_command::CreateTenantSchemaCommand,
                 delete_tenant_schema_command::DeleteTenantSchemaCommand,
+                rotate_tenant_keys_command::RotateTenantKeysCommand,
             },
             services::tenancy_command_service::TenancyCommandService,
         },
@@ -28,6 +29,7 @@ use crate::iam::{
                 CreateTenantSchemaResource, CreateTenantSchemaResponseResource,
             },
             delete_tenant_schema_resource::DeleteTenantSchemaResponseResource,
+            rotate_tenant_keys_resource::RotateTenantKeysResponseResource,
         },
     },
 };
@@ -249,6 +251,94 @@ pub async fn delete_tenant_schema(
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse::new("Failed to delete tenant schema").with_code(500)),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/tenancy/admin/tenants/{tenant_id}/rotate-keys",
+    tag = "tenancy",
+    security(
+        ("bearer_auth" = [])
+    ),
+    params(
+        ("tenant_id" = String, Path, description = "Tenant identifier")
+    ),
+    responses(
+        (status = 200, description = "Tenant keys rotated", body = RotateTenantKeysResponseResource),
+        (status = 400, description = "Invalid tenant id", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 403, description = "Forbidden - admin only", body = ErrorResponse),
+        (status = 500, description = "Internal error", body = ErrorResponse)
+    )
+)]
+pub async fn rotate_tenant_keys(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tenant_id): Path<String>,
+) -> impl IntoResponse {
+    match validate_admin(&headers, &state).await {
+        Ok(_) => {}
+        Err(StatusCode::FORBIDDEN) => {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse::new("Admin role required").with_code(403)),
+            )
+                .into_response();
+        }
+        Err(_) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ErrorResponse::new("Invalid or missing token").with_code(401)),
+            )
+                .into_response();
+        }
+    }
+
+    let tenant_uuid = match Uuid::parse_str(&tenant_id) {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new("Invalid tenant_id").with_code(400)),
+            )
+                .into_response();
+        }
+    };
+
+    let command = match RotateTenantKeysCommand::new(tenant_uuid) {
+        Ok(command) => command,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse::new(&error.to_string()).with_code(400)),
+            )
+                .into_response();
+        }
+    };
+
+    let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
+    let schema_service = PostgresTenantSchemaService::new(state.db.clone());
+    let command_service = TenancyCommandServiceImpl::new(tenant_repository, schema_service);
+
+    match command_service.rotate_tenant_keys(command).await {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(RotateTenantKeysResponseResource {
+                tenant_id: result.tenant_id.value().to_string(),
+                anon_key: result.anon_key,
+                secret_key: result.secret_key,
+            }),
+        )
+            .into_response(),
+        Err(error) => {
+            tracing::error!("Rotate tenant keys failed: {}", error);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse::new("Failed to rotate tenant keys").with_code(500)),
             )
                 .into_response()
         }

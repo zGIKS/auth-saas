@@ -26,4 +26,11 @@ pub trait TenantRepository: Send + Sync {
         &self,
         tenant_id: TenantId,
     ) -> impl Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
+
+    fn rotate_keys(
+        &self,
+        tenant_id: TenantId,
+        anon_key: TenantAnonKey,
+        secret_key_hash: String,
+    ) -> impl Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
 }

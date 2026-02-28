@@ -13,6 +13,7 @@ use crate::iam::tenancy::infrastructure::persistence::postgres::tenant_model::{
     ActiveModel, Column, Entity as TenantEntity,
 };
 use crate::shared::domain::model::entities::auditable_model::AuditableModel;
+use sea_orm::sea_query::Expr;
 use sea_orm::*;
 use std::error::Error;
 use std::str::FromStr;
@@ -122,6 +123,22 @@ impl TenantRepository for TenantRepositoryImpl {
 
     async fn delete_by_id(&self, tenant_id: TenantId) -> Result<(), Box<dyn Error + Send + Sync>> {
         TenantEntity::delete_by_id(tenant_id.value())
+            .exec(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    async fn rotate_keys(
+        &self,
+        tenant_id: TenantId,
+        anon_key: TenantAnonKey,
+        secret_key_hash: String,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        TenantEntity::update_many()
+            .col_expr(Column::AnonKey, Expr::value(anon_key.value().to_string()))
+            .col_expr(Column::SecretKeyHash, Expr::value(secret_key_hash))
+            .col_expr(Column::UpdatedAt, Expr::value(chrono::Utc::now()))
+            .filter(Column::Id.eq(tenant_id.value()))
             .exec(&self.db)
             .await?;
         Ok(())

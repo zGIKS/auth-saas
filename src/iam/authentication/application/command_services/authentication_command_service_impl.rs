@@ -16,7 +16,6 @@ use crate::iam::tenancy::interfaces::acl::tenancy_facade::{
 };
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutVerifier;
 use std::error::Error;
-use uuid::Uuid;
 
 #[derive(Clone, Copy)]
 pub struct LockoutPolicy {
@@ -51,17 +50,6 @@ pub struct NoopTenancyFacade;
 
 #[async_trait::async_trait]
 impl TenancyFacade for NoopTenancyFacade {
-    async fn resolve_access_context(
-        &self,
-        _user_id: Uuid,
-        _tenant_anon_key: String,
-    ) -> Result<
-        Option<crate::iam::tenancy::interfaces::acl::tenancy_facade::TenantAccessContextAcl>,
-        Box<dyn Error + Send + Sync>,
-    > {
-        Ok(None)
-    }
-
     async fn resolve_schema_by_anon_key(
         &self,
         _tenant_anon_key: String,
@@ -188,22 +176,19 @@ where
                     .reset_failure(&email, command.ip_address.as_deref())
                     .await?;
 
-                let access_context = self
+                let tenant_context = self
                     .tenancy_facade
-                    .resolve_access_context(uid, command.tenant_anon_key)
+                    .resolve_schema_by_anon_key(command.tenant_anon_key)
                     .await?;
 
-                let (tenant_id, role) = match access_context {
-                    Some(context) => (context.tenant_id, context.role),
-                    None => {
-                        let fallback_role = self
-                            .identity_facade
-                            .find_role_by_user_id(uid)
-                            .await?
-                            .ok_or("Invalid tenant access")?;
-                        (Uuid::nil(), fallback_role)
-                    }
-                };
+                let role = self
+                    .identity_facade
+                    .find_role_by_user_id(uid)
+                    .await?
+                    .ok_or("Invalid tenant access")?;
+                let tenant_id = tenant_context
+                    .map(|context| context.tenant_id)
+                    .unwrap_or(uuid::Uuid::nil());
 
                 // Generate token and get its JTI
                 let (token, jti) = self
@@ -249,22 +234,19 @@ where
             .await?
             .ok_or("Invalid or expired refresh token")?;
 
-        let access_context = self
+        let tenant_context = self
             .tenancy_facade
-            .resolve_access_context(user_id, command.tenant_anon_key)
+            .resolve_schema_by_anon_key(command.tenant_anon_key)
             .await?;
 
-        let (tenant_id, role) = match access_context {
-            Some(context) => (context.tenant_id, context.role),
-            None => {
-                let fallback_role = self
-                    .identity_facade
-                    .find_role_by_user_id(user_id)
-                    .await?
-                    .ok_or("Invalid tenant access")?;
-                (Uuid::nil(), fallback_role)
-            }
-        };
+        let role = self
+            .identity_facade
+            .find_role_by_user_id(user_id)
+            .await?
+            .ok_or("Invalid tenant access")?;
+        let tenant_id = tenant_context
+            .map(|context| context.tenant_id)
+            .unwrap_or(uuid::Uuid::nil());
 
         // Rotation: Revoke old token
         self.session_repository

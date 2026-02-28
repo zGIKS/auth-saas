@@ -4,6 +4,7 @@ use crate::iam::tenancy::domain::{
         commands::{
             create_tenant_schema_command::CreateTenantSchemaCommand,
             delete_tenant_schema_command::DeleteTenantSchemaCommand,
+            rotate_tenant_keys_command::RotateTenantKeysCommand,
         },
         value_objects::tenant_id::TenantId,
     },
@@ -14,6 +15,13 @@ use async_trait::async_trait;
 pub struct CreatedTenantSchemaResult {
     pub tenant_id: TenantId,
     pub schema_name: String,
+    pub anon_key: String,
+    pub secret_key: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct RotatedTenantKeysResult {
+    pub tenant_id: TenantId,
     pub anon_key: String,
     pub secret_key: String,
 }
@@ -29,4 +37,9 @@ pub trait TenancyCommandService: Send + Sync {
         &self,
         command: DeleteTenantSchemaCommand,
     ) -> Result<(), DomainError>;
+
+    async fn rotate_tenant_keys(
+        &self,
+        command: RotateTenantKeysCommand,
+    ) -> Result<RotatedTenantKeysResult, DomainError>;
 }

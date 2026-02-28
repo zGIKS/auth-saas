@@ -199,6 +199,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             axum::routing::delete(
                 iam::tenancy::interfaces::rest::controllers::tenancy_controller::delete_tenant_schema,
             ),
+        )
+        .route(
+            "/api/v1/tenancy/admin/tenants/:tenant_id/rotate-keys",
+            post(iam::tenancy::interfaces::rest::controllers::tenancy_controller::rotate_tenant_keys),
         );
 
     let app = if app_env == "dev" {

@@ -1,3 +1,2 @@
-pub mod resolve_tenant_access_query;
 pub mod resolve_tenant_oauth_configuration_query;
 pub mod resolve_tenant_schema_query;

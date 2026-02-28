@@ -6,13 +6,16 @@ use crate::iam::tenancy::{
             commands::{
                 create_tenant_schema_command::CreateTenantSchemaCommand,
                 delete_tenant_schema_command::DeleteTenantSchemaCommand,
+                rotate_tenant_keys_command::RotateTenantKeysCommand,
             },
             value_objects::{
                 tenant_anon_key::TenantAnonKey, tenant_id::TenantId, tenant_status::TenantStatus,
             },
         },
         repositories::tenant_repository::TenantRepository,
-        services::tenancy_command_service::{CreatedTenantSchemaResult, TenancyCommandService},
+        services::tenancy_command_service::{
+            CreatedTenantSchemaResult, RotatedTenantKeysResult, TenancyCommandService,
+        },
     },
     infrastructure::services::postgres_tenant_schema_service::PostgresTenantSchemaService,
 };
@@ -124,5 +127,32 @@ where
             .map_err(|e| DomainError::InternalError(e.to_string()))?;
 
         Ok(())
+    }
+
+    async fn rotate_tenant_keys(
+        &self,
+        command: RotateTenantKeysCommand,
+    ) -> Result<RotatedTenantKeysResult, DomainError> {
+        self.tenant_repository
+            .find_by_id(command.tenant_id)
+            .await
+            .map_err(|e| DomainError::InternalError(e.to_string()))?
+            .ok_or_else(|| DomainError::InternalError("Tenant not found".to_string()))?;
+
+        let anon_key = Self::generate_anon_key();
+        let secret_key = Self::generate_secret_key();
+        let secret_key_hash = Self::hash_secret_key(&secret_key);
+        let anon_key_vo = TenantAnonKey::new(anon_key.clone())?;
+
+        self.tenant_repository
+            .rotate_keys(command.tenant_id, anon_key_vo, secret_key_hash)
+            .await
+            .map_err(|e| DomainError::InternalError(e.to_string()))?;
+
+        Ok(RotatedTenantKeysResult {
+            tenant_id: command.tenant_id,
+            anon_key,
+            secret_key,
+        })
     }
 }

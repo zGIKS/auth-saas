@@ -2,87 +2,38 @@ use crate::iam::tenancy::domain::{
     error::DomainError,
     model::{
         queries::{
-            resolve_tenant_access_query::ResolveTenantAccessQuery,
             resolve_tenant_oauth_configuration_query::ResolveTenantOAuthConfigurationQuery,
             resolve_tenant_schema_query::ResolveTenantSchemaQuery,
         },
-        value_objects::{membership_status::MembershipStatus, tenant_status::TenantStatus},
+        value_objects::tenant_status::TenantStatus,
     },
-    repositories::{
-        membership_repository::MembershipRepository, tenant_repository::TenantRepository,
-    },
+    repositories::tenant_repository::TenantRepository,
     services::tenancy_query_service::{
-        TenancyQueryService, TenantAccessContext, TenantOAuthConfigurationContext,
-        TenantSchemaContext,
+        TenancyQueryService, TenantOAuthConfigurationContext, TenantSchemaContext,
     },
 };
 
-pub struct TenancyQueryServiceImpl<T, M>
+pub struct TenancyQueryServiceImpl<T>
 where
     T: TenantRepository,
-    M: MembershipRepository,
 {
     tenant_repository: T,
-    membership_repository: M,
 }
 
-impl<T, M> TenancyQueryServiceImpl<T, M>
+impl<T> TenancyQueryServiceImpl<T>
 where
     T: TenantRepository,
-    M: MembershipRepository,
 {
-    pub fn new(tenant_repository: T, membership_repository: M) -> Self {
-        Self {
-            tenant_repository,
-            membership_repository,
-        }
+    pub fn new(tenant_repository: T) -> Self {
+        Self { tenant_repository }
     }
 }
 
 #[async_trait::async_trait]
-impl<T, M> TenancyQueryService for TenancyQueryServiceImpl<T, M>
+impl<T> TenancyQueryService for TenancyQueryServiceImpl<T>
 where
     T: TenantRepository,
-    M: MembershipRepository,
 {
-    async fn handle(
-        &self,
-        query: ResolveTenantAccessQuery,
-    ) -> Result<Option<TenantAccessContext>, DomainError> {
-        let tenant = self
-            .tenant_repository
-            .find_by_anon_key(&query.tenant_anon_key)
-            .await
-            .map_err(|e| DomainError::InternalError(e.to_string()))?;
-
-        let Some(tenant) = tenant else {
-            return Ok(None);
-        };
-
-        if tenant.status() != &TenantStatus::Active {
-            return Ok(None);
-        }
-
-        let membership = self
-            .membership_repository
-            .find_by_user_and_tenant(query.user_id, tenant.id())
-            .await
-            .map_err(|e| DomainError::InternalError(e.to_string()))?;
-
-        let Some(membership) = membership else {
-            return Ok(None);
-        };
-
-        if membership.status() != &MembershipStatus::Active {
-            return Ok(None);
-        }
-
-        Ok(Some(TenantAccessContext {
-            tenant_id: tenant.id(),
-            role: membership.role().clone(),
-        }))
-    }
-
     async fn resolve_tenant_schema(
         &self,
         query: ResolveTenantSchemaQuery,

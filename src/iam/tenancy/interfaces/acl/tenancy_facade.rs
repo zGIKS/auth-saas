@@ -2,12 +2,6 @@ use std::error::Error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
-pub struct TenantAccessContextAcl {
-    pub tenant_id: Uuid,
-    pub role: String,
-}
-
-#[derive(Debug, Clone)]
 pub struct TenantSchemaContextAcl {
     pub tenant_id: Uuid,
     pub schema_name: String,
@@ -24,12 +18,6 @@ pub struct TenantOAuthConfigurationContextAcl {
 
 #[async_trait::async_trait]
 pub trait TenancyFacade: Send + Sync {
-    async fn resolve_access_context(
-        &self,
-        user_id: Uuid,
-        tenant_anon_key: String,
-    ) -> Result<Option<TenantAccessContextAcl>, Box<dyn Error + Send + Sync>>;
-
     async fn resolve_schema_by_anon_key(
         &self,
         tenant_anon_key: String,

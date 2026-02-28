@@ -32,10 +32,7 @@ use crate::iam::tenancy::{
         acl::tenancy_facade_impl::TenancyFacadeImpl,
         query_services::tenancy_query_service_impl::TenancyQueryServiceImpl,
     },
-    infrastructure::persistence::postgres::repositories::{
-        membership_repository_impl::MembershipRepositoryImpl,
-        tenant_repository_impl::TenantRepositoryImpl,
-    },
+    infrastructure::persistence::postgres::repositories::tenant_repository_impl::TenantRepositoryImpl,
     interfaces::acl::tenancy_facade::TenancyFacade,
 };
 use crate::shared::infrastructure::services::account_lockout::AccountLockoutService;
@@ -60,9 +57,7 @@ async fn resolve_auth_schema(
     };
 
     let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
-    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
-    let tenancy_query_service =
-        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_query_service = TenancyQueryServiceImpl::new(tenant_repository);
     let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
 
     let resolved = tenancy_facade
@@ -110,9 +105,7 @@ pub async fn signin(
     };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
-    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
-    let tenancy_query_service =
-        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_query_service = TenancyQueryServiceImpl::new(tenant_repository);
     let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
@@ -182,9 +175,7 @@ pub async fn logout(
     let identity_repo = IdentityRepositoryImpl::new(state.db.clone());
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
-    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
-    let tenancy_query_service =
-        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_query_service = TenancyQueryServiceImpl::new(tenant_repository);
     let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
@@ -249,9 +240,7 @@ pub async fn refresh_token(
     };
     let identity_facade = IdentityFacadeImpl::new(identity_repo);
     let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
-    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
-    let tenancy_query_service =
-        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_query_service = TenancyQueryServiceImpl::new(tenant_repository);
     let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);

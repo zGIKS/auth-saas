@@ -46,9 +46,7 @@ use crate::iam::tenancy::{
         acl::tenancy_facade_impl::TenancyFacadeImpl,
         query_services::tenancy_query_service_impl::TenancyQueryServiceImpl,
     },
-    infrastructure::persistence::postgres::repositories::{
-        membership_repository_impl::MembershipRepositoryImpl, tenant_repository_impl::TenantRepositoryImpl,
-    },
+    infrastructure::persistence::postgres::repositories::tenant_repository_impl::TenantRepositoryImpl,
     interfaces::acl::tenancy_facade::TenancyFacade,
 };
 use std::sync::Arc;
@@ -62,9 +60,7 @@ async fn resolve_target_schema(
     };
 
     let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
-    let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
-    let tenancy_query_service =
-        TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+    let tenancy_query_service = TenancyQueryServiceImpl::new(tenant_repository);
     let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
 
     let resolved = tenancy_facade

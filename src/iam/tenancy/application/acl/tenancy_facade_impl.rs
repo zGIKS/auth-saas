@@ -1,20 +1,17 @@
 use crate::iam::tenancy::{
     domain::{
         model::queries::{
-            resolve_tenant_access_query::ResolveTenantAccessQuery,
             resolve_tenant_oauth_configuration_query::ResolveTenantOAuthConfigurationQuery,
             resolve_tenant_schema_query::ResolveTenantSchemaQuery,
         },
         services::tenancy_query_service::TenancyQueryService,
     },
     interfaces::acl::tenancy_facade::{
-        TenancyFacade, TenantAccessContextAcl, TenantOAuthConfigurationContextAcl,
-        TenantSchemaContextAcl,
+        TenancyFacade, TenantOAuthConfigurationContextAcl, TenantSchemaContextAcl,
     },
 };
 use std::error::Error;
 use std::sync::Arc;
-use uuid::Uuid;
 
 pub struct TenancyFacadeImpl<Q>
 where
@@ -37,26 +34,6 @@ impl<Q> TenancyFacade for TenancyFacadeImpl<Q>
 where
     Q: TenancyQueryService,
 {
-    async fn resolve_access_context(
-        &self,
-        user_id: Uuid,
-        tenant_anon_key: String,
-    ) -> Result<Option<TenantAccessContextAcl>, Box<dyn Error + Send + Sync>> {
-        let query = ResolveTenantAccessQuery::new(user_id, tenant_anon_key)
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-        let context = self
-            .query_service
-            .handle(query)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>)?;
-
-        Ok(context.map(|ctx| TenantAccessContextAcl {
-            tenant_id: ctx.tenant_id.value(),
-            role: ctx.role.as_str().to_string(),
-        }))
-    }
-
     async fn resolve_schema_by_anon_key(
         &self,
         tenant_anon_key: String,

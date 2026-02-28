@@ -35,9 +35,7 @@ use crate::iam::tenancy::{
         acl::tenancy_facade_impl::TenancyFacadeImpl,
         query_services::tenancy_query_service_impl::TenancyQueryServiceImpl,
     },
-    infrastructure::persistence::postgres::repositories::{
-        membership_repository_impl::MembershipRepositoryImpl, tenant_repository_impl::TenantRepositoryImpl,
-    },
+    infrastructure::persistence::postgres::repositories::tenant_repository_impl::TenantRepositoryImpl,
     interfaces::acl::tenancy_facade::TenancyFacade,
 };
 use crate::shared::interfaces::rest::{app_state::AppState, error_response::ErrorResponse};
@@ -60,9 +58,7 @@ async fn resolve_google_oauth_context(
     match tenant_anon_key {
         Some(tenant_key) => {
             let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
-            let membership_repository = MembershipRepositoryImpl::new(state.db.clone());
-            let tenancy_query_service =
-                TenancyQueryServiceImpl::new(tenant_repository, membership_repository);
+            let tenancy_query_service = TenancyQueryServiceImpl::new(tenant_repository);
             let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
 
             let config = tenancy_facade
