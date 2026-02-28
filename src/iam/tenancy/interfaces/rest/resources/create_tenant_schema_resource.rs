@@ -13,9 +13,6 @@ pub struct CreateTenantSchemaResource {
     #[validate(length(min = 1))]
     #[schema(example = "google-client-secret")]
     pub google_client_secret: String,
-    #[validate(url)]
-    #[schema(example = "https://tenant.example.com/api/v1/auth/google/callback")]
-    pub google_redirect_uri: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

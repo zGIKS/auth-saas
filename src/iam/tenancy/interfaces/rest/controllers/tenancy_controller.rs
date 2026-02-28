@@ -133,7 +133,7 @@ pub async fn create_tenant_schema(
         admin_user_id,
         resource.google_client_id,
         resource.google_client_secret,
-        resource.google_redirect_uri,
+        state.google_redirect_uri.clone(),
     ) {
         Ok(command) => command,
         Err(error) => {
