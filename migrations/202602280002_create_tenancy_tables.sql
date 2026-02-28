@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS tenants (
     secret_key_hash varchar NOT NULL,
     google_client_id varchar,
     google_client_secret varchar,
-    google_redirect_uri varchar,
     status varchar NOT NULL DEFAULT 'active',
     created_at timestamptz NOT NULL,
     updated_at timestamptz NOT NULL

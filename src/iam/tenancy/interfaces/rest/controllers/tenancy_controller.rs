@@ -105,7 +105,7 @@ pub async fn create_tenant_schema(
     if let Err(validation_error) = resource.validate() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse::new(&validation_error.to_string()).with_code(400)),
+            Json(ErrorResponse::new(validation_error.to_string()).with_code(400)),
         )
             .into_response();
     }
@@ -133,13 +133,12 @@ pub async fn create_tenant_schema(
         admin_user_id,
         resource.google_client_id,
         resource.google_client_secret,
-        state.google_redirect_uri.clone(),
     ) {
         Ok(command) => command,
         Err(error) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new(&error.to_string()).with_code(400)),
+                Json(ErrorResponse::new(error.to_string()).with_code(400)),
             )
                 .into_response();
         }
@@ -228,7 +227,7 @@ pub async fn delete_tenant_schema(
         Err(error) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new(&error.to_string()).with_code(400)),
+                Json(ErrorResponse::new(error.to_string()).with_code(400)),
             )
                 .into_response();
         }
@@ -314,7 +313,7 @@ pub async fn rotate_tenant_keys(
         Err(error) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse::new(&error.to_string()).with_code(400)),
+                Json(ErrorResponse::new(error.to_string()).with_code(400)),
             )
                 .into_response();
         }

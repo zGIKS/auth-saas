@@ -20,3 +20,9 @@ impl TenantId {
         self.0
     }
 }
+
+impl Default for TenantId {
+    fn default() -> Self {
+        Self::new()
+    }
+}

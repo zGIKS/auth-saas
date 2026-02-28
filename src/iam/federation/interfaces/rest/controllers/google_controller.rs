@@ -73,7 +73,7 @@ async fn resolve_google_oauth_context(
                 tenant_anon_key: tenant_key,
                 client_id: config.google_client_id,
                 client_secret: config.google_client_secret,
-                redirect_uri: config.google_redirect_uri,
+                redirect_uri: state.google_redirect_uri.clone(),
             })
         }
         None => Ok(GoogleOAuthContext {

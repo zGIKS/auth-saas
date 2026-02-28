@@ -13,7 +13,6 @@ pub struct Model {
     pub secret_key_hash: String,
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
-    pub google_redirect_uri: Option<String>,
     pub status: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,

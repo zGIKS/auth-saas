@@ -13,7 +13,6 @@ pub struct TenantOAuthConfigurationContextAcl {
     pub schema_name: String,
     pub google_client_id: String,
     pub google_client_secret: String,
-    pub google_redirect_uri: String,
 }
 
 #[async_trait::async_trait]

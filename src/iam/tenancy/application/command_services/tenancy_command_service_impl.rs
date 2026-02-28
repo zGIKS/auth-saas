@@ -2,7 +2,7 @@ use crate::iam::tenancy::{
     domain::{
         error::DomainError,
         model::{
-            aggregates::tenant::Tenant,
+            aggregates::tenant::{Tenant, TenantConstructionData},
             commands::{
                 create_tenant_schema_command::CreateTenantSchemaCommand,
                 delete_tenant_schema_command::DeleteTenantSchemaCommand,
@@ -78,17 +78,17 @@ where
             .create_schema_with_base_tables(command.schema_name.value())
             .await?;
 
-        let tenant = Tenant::new(
-            tenant_id,
-            command.tenant_name,
-            command.schema_name.clone(),
-            command.admin_user_id,
-            TenantAnonKey::new(anon_key.clone())?,
+        let tenant = Tenant::new(TenantConstructionData {
+            id: tenant_id,
+            name: command.tenant_name,
+            schema_name: command.schema_name.clone(),
+            admin_user_id: command.admin_user_id,
+            anon_key: TenantAnonKey::new(anon_key.clone())?,
             secret_key_hash,
-            Some(command.google_oauth_configuration),
-            TenantStatus::Active,
-            AuditableModel::new(),
-        );
+            google_oauth_configuration: Some(command.google_oauth_configuration),
+            status: TenantStatus::Active,
+            audit: AuditableModel::new(),
+        });
 
         if let Err(e) = self.tenant_repository.save(tenant).await {
             let _ = self

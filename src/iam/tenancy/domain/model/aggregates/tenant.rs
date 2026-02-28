@@ -19,28 +19,31 @@ pub struct Tenant {
     audit: AuditableModel,
 }
 
+#[derive(Debug, Clone)]
+pub struct TenantConstructionData {
+    pub id: TenantId,
+    pub name: TenantName,
+    pub schema_name: TenantSchemaName,
+    pub admin_user_id: Uuid,
+    pub anon_key: TenantAnonKey,
+    pub secret_key_hash: String,
+    pub google_oauth_configuration: Option<GoogleOAuthTenantConfiguration>,
+    pub status: TenantStatus,
+    pub audit: AuditableModel,
+}
+
 impl Tenant {
-    pub fn new(
-        id: TenantId,
-        name: TenantName,
-        schema_name: TenantSchemaName,
-        admin_user_id: Uuid,
-        anon_key: TenantAnonKey,
-        secret_key_hash: String,
-        google_oauth_configuration: Option<GoogleOAuthTenantConfiguration>,
-        status: TenantStatus,
-        audit: AuditableModel,
-    ) -> Self {
+    pub fn new(data: TenantConstructionData) -> Self {
         Self {
-            id,
-            name,
-            schema_name,
-            admin_user_id,
-            anon_key,
-            secret_key_hash,
-            google_oauth_configuration,
-            status,
-            audit,
+            id: data.id,
+            name: data.name,
+            schema_name: data.schema_name,
+            admin_user_id: data.admin_user_id,
+            anon_key: data.anon_key,
+            secret_key_hash: data.secret_key_hash,
+            google_oauth_configuration: data.google_oauth_configuration,
+            status: data.status,
+            audit: data.audit,
         }
     }
 

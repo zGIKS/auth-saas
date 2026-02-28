@@ -21,16 +21,12 @@ impl CreateTenantSchemaCommand {
         admin_user_id: Uuid,
         google_client_id: String,
         google_client_secret: String,
-        google_redirect_uri: String,
     ) -> Result<Self, DomainError> {
         let tenant_name_vo = TenantName::new(tenant_name)?;
         let compact_id = Uuid::new_v4().simple().to_string();
         let schema_name = TenantSchemaName::new(format!("tenant_{}", &compact_id[..12]))?;
-        let google_oauth_configuration = GoogleOAuthTenantConfiguration::new(
-            google_client_id,
-            google_client_secret,
-            google_redirect_uri,
-        )?;
+        let google_oauth_configuration =
+            GoogleOAuthTenantConfiguration::new(google_client_id, google_client_secret)?;
 
         Ok(Self {
             tenant_name: tenant_name_vo,

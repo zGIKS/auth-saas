@@ -71,7 +71,6 @@ where
             schema_name: ctx.schema_name,
             google_client_id: ctx.google_client_id,
             google_client_secret: ctx.google_client_secret,
-            google_redirect_uri: ctx.google_redirect_uri,
         }))
     }
 }

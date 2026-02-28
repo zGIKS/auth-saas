@@ -85,7 +85,6 @@ where
             schema_name: tenant.schema_name().value().to_string(),
             google_client_id: google_oauth_configuration.client_id().to_string(),
             google_client_secret: google_oauth_configuration.client_secret().to_string(),
-            google_redirect_uri: google_oauth_configuration.redirect_uri().to_string(),
         }))
     }
 }
