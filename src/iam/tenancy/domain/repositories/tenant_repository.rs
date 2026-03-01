@@ -33,4 +33,12 @@ pub trait TenantRepository: Send + Sync {
         anon_key: TenantAnonKey,
         secret_key_hash: String,
     ) -> impl Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
+
+    fn update_tenant_schema_configuration(
+        &self,
+        tenant_id: TenantId,
+        frontend_url: Option<String>,
+        google_client_id: Option<String>,
+        google_client_secret: Option<String>,
+    ) -> impl Future<Output = Result<(), Box<dyn Error + Send + Sync>>> + Send;
 }

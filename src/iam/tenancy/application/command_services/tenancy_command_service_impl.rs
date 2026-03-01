@@ -7,6 +7,7 @@ use crate::iam::tenancy::{
                 create_tenant_schema_command::CreateTenantSchemaCommand,
                 delete_tenant_schema_command::DeleteTenantSchemaCommand,
                 rotate_tenant_keys_command::RotateTenantKeysCommand,
+                update_tenant_schema_configuration_command::UpdateTenantSchemaConfigurationCommand,
             },
             value_objects::{
                 tenant_anon_key::TenantAnonKey, tenant_id::TenantId, tenant_status::TenantStatus,
@@ -82,11 +83,10 @@ where
             id: tenant_id,
             name: command.tenant_name,
             schema_name: command.schema_name.clone(),
-            admin_user_id: command.admin_user_id,
             anon_key: TenantAnonKey::new(anon_key.clone())?,
             frontend_url: command.frontend_url,
             secret_key_hash,
-            google_oauth_configuration: Some(command.google_oauth_configuration),
+            google_oauth_configuration: command.google_oauth_configuration,
             status: TenantStatus::Active,
             audit: AuditableModel::new(),
         });
@@ -155,5 +155,32 @@ where
             anon_key,
             secret_key,
         })
+    }
+
+    async fn update_tenant_schema_configuration(
+        &self,
+        command: UpdateTenantSchemaConfigurationCommand,
+    ) -> Result<(), DomainError> {
+        self.tenant_repository
+            .find_by_id(command.tenant_id)
+            .await
+            .map_err(|e| DomainError::InternalError(e.to_string()))?
+            .ok_or_else(|| DomainError::InternalError("Tenant not found".to_string()))?;
+
+        self.tenant_repository
+            .update_tenant_schema_configuration(
+                command.tenant_id,
+                command.frontend_url.map(|url| url.value().to_string()),
+                command
+                    .google_oauth_configuration
+                    .as_ref()
+                    .map(|oauth| oauth.client_id().to_string()),
+                command
+                    .google_oauth_configuration
+                    .as_ref()
+                    .map(|oauth| oauth.client_secret().to_string()),
+            )
+            .await
+            .map_err(|e| DomainError::InternalError(e.to_string()))
     }
 }

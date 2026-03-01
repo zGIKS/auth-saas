@@ -4,14 +4,12 @@ use crate::iam::tenancy::domain::model::value_objects::{
     tenant_name::TenantName, tenant_schema_name::TenantSchemaName, tenant_status::TenantStatus,
 };
 use crate::shared::domain::model::entities::auditable_model::AuditableModel;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct Tenant {
     id: TenantId,
     name: TenantName,
     schema_name: TenantSchemaName,
-    admin_user_id: Uuid,
     anon_key: TenantAnonKey,
     frontend_url: TenantFrontendUrl,
     secret_key_hash: String,
@@ -25,7 +23,6 @@ pub struct TenantConstructionData {
     pub id: TenantId,
     pub name: TenantName,
     pub schema_name: TenantSchemaName,
-    pub admin_user_id: Uuid,
     pub anon_key: TenantAnonKey,
     pub frontend_url: TenantFrontendUrl,
     pub secret_key_hash: String,
@@ -40,7 +37,6 @@ impl Tenant {
             id: data.id,
             name: data.name,
             schema_name: data.schema_name,
-            admin_user_id: data.admin_user_id,
             anon_key: data.anon_key,
             frontend_url: data.frontend_url,
             secret_key_hash: data.secret_key_hash,
@@ -60,10 +56,6 @@ impl Tenant {
 
     pub fn schema_name(&self) -> &TenantSchemaName {
         &self.schema_name
-    }
-
-    pub fn admin_user_id(&self) -> Uuid {
-        self.admin_user_id
     }
 
     pub fn anon_key(&self) -> &TenantAnonKey {

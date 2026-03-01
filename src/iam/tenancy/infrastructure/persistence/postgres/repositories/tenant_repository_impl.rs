@@ -33,7 +33,6 @@ impl TenantRepositoryImpl {
             id: Set(tenant.id().value()),
             name: Set(tenant.name().value().to_string()),
             schema_name: Set(tenant.schema_name().value().to_string()),
-            admin_user_id: Set(tenant.admin_user_id()),
             anon_key: Set(tenant.anon_key().value().to_string()),
             frontend_url: Set(tenant.frontend_url().value().to_string()),
             secret_key_hash: Set(tenant.secret_key_hash().to_string()),
@@ -66,7 +65,6 @@ impl TenantRepositoryImpl {
             name: TenantName::new(model.name).map_err(Box::<dyn Error + Send + Sync>::from)?,
             schema_name: TenantSchemaName::new(model.schema_name)
                 .map_err(Box::<dyn Error + Send + Sync>::from)?,
-            admin_user_id: model.admin_user_id,
             anon_key: TenantAnonKey::new(model.anon_key)
                 .map_err(Box::<dyn Error + Send + Sync>::from)?,
             frontend_url: TenantFrontendUrl::new(model.frontend_url)
@@ -137,6 +135,36 @@ impl TenantRepository for TenantRepositoryImpl {
         TenantEntity::update_many()
             .col_expr(Column::AnonKey, Expr::value(anon_key.value().to_string()))
             .col_expr(Column::SecretKeyHash, Expr::value(secret_key_hash))
+            .col_expr(Column::UpdatedAt, Expr::value(chrono::Utc::now()))
+            .filter(Column::Id.eq(tenant_id.value()))
+            .exec(&self.db)
+            .await?;
+        Ok(())
+    }
+
+    async fn update_tenant_schema_configuration(
+        &self,
+        tenant_id: TenantId,
+        frontend_url: Option<String>,
+        google_client_id: Option<String>,
+        google_client_secret: Option<String>,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let mut update = TenantEntity::update_many();
+
+        if let Some(frontend_url) = frontend_url {
+            update = update.col_expr(Column::FrontendUrl, Expr::value(frontend_url));
+        }
+        if let Some(google_client_id) = google_client_id {
+            update = update.col_expr(Column::GoogleClientId, Expr::value(google_client_id));
+        }
+        if let Some(google_client_secret) = google_client_secret {
+            update = update.col_expr(
+                Column::GoogleClientSecret,
+                Expr::value(google_client_secret),
+            );
+        }
+
+        update
             .col_expr(Column::UpdatedAt, Expr::value(chrono::Utc::now()))
             .filter(Column::Id.eq(tenant_id.value()))
             .exec(&self.db)

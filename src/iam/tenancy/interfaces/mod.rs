@@ -1,2 +1,2 @@
 pub mod acl;
-pub mod rest;
+pub mod cli;

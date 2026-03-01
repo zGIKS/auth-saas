@@ -5,6 +5,7 @@ use crate::iam::tenancy::domain::{
             create_tenant_schema_command::CreateTenantSchemaCommand,
             delete_tenant_schema_command::DeleteTenantSchemaCommand,
             rotate_tenant_keys_command::RotateTenantKeysCommand,
+            update_tenant_schema_configuration_command::UpdateTenantSchemaConfigurationCommand,
         },
         value_objects::tenant_id::TenantId,
     },
@@ -42,4 +43,9 @@ pub trait TenancyCommandService: Send + Sync {
         &self,
         command: RotateTenantKeysCommand,
     ) -> Result<RotatedTenantKeysResult, DomainError>;
+
+    async fn update_tenant_schema_configuration(
+        &self,
+        command: UpdateTenantSchemaConfigurationCommand,
+    ) -> Result<(), DomainError>;
 }

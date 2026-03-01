@@ -1,0 +1,4 @@
+pub mod create_tenant_schema_cli_resource;
+pub mod delete_tenant_schema_cli_resource;
+pub mod rotate_tenant_keys_cli_resource;
+pub mod update_tenant_schema_configuration_cli_resource;

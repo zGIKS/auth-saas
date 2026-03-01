@@ -1,0 +1,11 @@
+{
+  "name": "auth-saas-admin-cli",
+  "private": true,
+  "scripts": {
+    "cli": "cargo run --bin tenancy_cli --",
+    "tenant:create": "cargo run --bin tenancy_cli -- tenant-create",
+    "tenant:edit": "cargo run --bin tenancy_cli -- tenant-edit",
+    "tenant:rotate-keys": "cargo run --bin tenancy_cli -- tenant-rotate-keys",
+    "tenant:delete": "cargo run --bin tenancy_cli -- tenant-delete"
+  }
+}

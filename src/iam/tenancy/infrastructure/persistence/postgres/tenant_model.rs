@@ -7,7 +7,6 @@ pub struct Model {
     pub id: Uuid,
     pub name: String,
     pub schema_name: String,
-    pub admin_user_id: Uuid,
     #[sea_orm(unique)]
     pub anon_key: String,
     pub frontend_url: String,
