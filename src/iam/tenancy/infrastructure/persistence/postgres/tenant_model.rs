@@ -10,6 +10,7 @@ pub struct Model {
     pub admin_user_id: Uuid,
     #[sea_orm(unique)]
     pub anon_key: String,
+    pub frontend_url: String,
     pub secret_key_hash: String,
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,

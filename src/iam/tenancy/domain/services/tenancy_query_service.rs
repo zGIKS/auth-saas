@@ -5,12 +5,14 @@ use async_trait::async_trait;
 pub struct TenantSchemaContext {
     pub tenant_id: TenantId,
     pub schema_name: String,
+    pub frontend_url: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct TenantOAuthConfigurationContext {
     pub tenant_id: TenantId,
     pub schema_name: String,
+    pub frontend_url: String,
     pub google_client_id: String,
     pub google_client_secret: String,
 }

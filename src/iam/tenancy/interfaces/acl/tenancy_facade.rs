@@ -5,12 +5,14 @@ use uuid::Uuid;
 pub struct TenantSchemaContextAcl {
     pub tenant_id: Uuid,
     pub schema_name: String,
+    pub frontend_url: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct TenantOAuthConfigurationContextAcl {
     pub tenant_id: Uuid,
     pub schema_name: String,
+    pub frontend_url: String,
     pub google_client_id: String,
     pub google_client_secret: String,
 }

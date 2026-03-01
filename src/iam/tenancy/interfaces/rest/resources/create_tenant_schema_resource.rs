@@ -5,14 +5,17 @@ use validator::Validate;
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateTenantSchemaResource {
     #[validate(length(min = 3, max = 120))]
-    #[schema(example = "Acme")]
+    #[schema(example = "string")]
     pub tenant_name: String,
     #[validate(length(min = 1))]
-    #[schema(example = "google-client-id.apps.googleusercontent.com")]
+    #[schema(example = "string")]
     pub google_client_id: String,
     #[validate(length(min = 1))]
-    #[schema(example = "google-client-secret")]
+    #[schema(example = "string")]
     pub google_client_secret: String,
+    #[validate(url)]
+    #[schema(example = "http://localhost:3000")]
+    pub frontend_url: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]

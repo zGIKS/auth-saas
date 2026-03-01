@@ -45,6 +45,7 @@ use std::sync::Arc;
 struct GoogleOAuthContext {
     tenant_id: Uuid,
     schema_name: String,
+    frontend_url: String,
     tenant_anon_key: String,
     client_id: String,
     client_secret: String,
@@ -70,6 +71,7 @@ async fn resolve_google_oauth_context(
             Ok(GoogleOAuthContext {
                 tenant_id: config.tenant_id,
                 schema_name: config.schema_name,
+                frontend_url: config.frontend_url,
                 tenant_anon_key: tenant_key,
                 client_id: config.google_client_id,
                 client_secret: config.google_client_secret,
@@ -79,6 +81,10 @@ async fn resolve_google_oauth_context(
         None => Ok(GoogleOAuthContext {
             tenant_id: Uuid::nil(),
             schema_name: "public".to_string(),
+            frontend_url: state
+                .frontend_url
+                .clone()
+                .unwrap_or_else(|| "http://localhost:3000".to_string()),
             tenant_anon_key: "__public__".to_string(),
             client_id: state.google_client_id.clone(),
             client_secret: state.google_client_secret.clone(),
@@ -99,16 +105,19 @@ pub async fn redirect_to_google(
     jar: CookieJar,
     Query(query): Query<GoogleAuthorizeQueryResource>,
 ) -> impl IntoResponse {
+    let requested_tenant_key = query.tenant_anon_key.clone();
     let oauth_context = match resolve_google_oauth_context(&state, query.tenant_anon_key).await {
         Ok(context) => context,
         Err(error) => {
-            let frontend_url = state
-                .frontend_url
-                .as_deref()
-                .unwrap_or("http://localhost:3000");
+            if requested_tenant_key.is_some() {
+                return ErrorResponse::new(error).with_code(400).into_response();
+            }
             let redirect_url = format!(
                 "{}/login?error=tenant_oauth_config&message={}",
-                frontend_url,
+                state
+                    .frontend_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:3000"),
                 urlencoding::encode(&error)
             );
             return (jar, Redirect::to(&redirect_url)).into_response();
@@ -157,14 +166,37 @@ pub async fn google_callback(
     jar: CookieJar,
     Query(query): Query<GoogleCallbackQuery>,
 ) -> impl IntoResponse {
-    let frontend_url = match state.frontend_url.as_deref() {
-        Some(url) => url,
-        None => {
-            return ErrorResponse::new("Frontend URL not configured")
-                .with_code(StatusCode::INTERNAL_SERVER_ERROR.as_u16())
-                .into_response();
+    let frontend_url_fallback = state
+        .frontend_url
+        .clone()
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+
+    let tenant_cookie_value = jar.get("oauth_tenant_key").map(|c| c.value().to_string());
+    let tenant_requested = matches!(tenant_cookie_value.as_deref(), Some(v) if v != "__public__");
+    let oauth_context = match resolve_google_oauth_context(
+        &state,
+        match tenant_cookie_value.clone() {
+            Some(value) if value == "__public__" => None,
+            Some(value) => Some(value),
+            None => None,
+        },
+    )
+    .await
+    {
+        Ok(context) => context,
+        Err(error) => {
+            if tenant_requested {
+                return ErrorResponse::new(error).with_code(400).into_response();
+            }
+            let redirect_url = format!(
+                "{}/login?error=tenant_oauth_config&message={}",
+                frontend_url_fallback,
+                urlencoding::encode(&error)
+            );
+            return (jar, Redirect::to(&redirect_url)).into_response();
         }
     };
+    let frontend_url = oauth_context.frontend_url.as_str();
 
     // CSRF Validation
     let cookie_state = jar.get("oauth_state").map(|c| c.value().to_string());
@@ -182,31 +214,9 @@ pub async fn google_callback(
     }
 
     // Clean up cookie
-    let tenant_cookie_value = jar.get("oauth_tenant_key").map(|c| c.value().to_string());
     let jar = jar
         .remove(Cookie::from("oauth_state"))
         .remove(Cookie::from("oauth_tenant_key"));
-
-    let oauth_context = match resolve_google_oauth_context(
-        &state,
-        match tenant_cookie_value {
-            Some(value) if value == "__public__" => None,
-            Some(value) => Some(value),
-            None => None,
-        },
-    )
-    .await
-    {
-        Ok(context) => context,
-        Err(error) => {
-            let redirect_url = format!(
-                "{}/login?error=tenant_oauth_config&message={}",
-                frontend_url,
-                urlencoding::encode(&error)
-            );
-            return (jar, Redirect::to(&redirect_url)).into_response();
-        }
-    };
 
     let oauth_client = GoogleOAuthClient::new(
         oauth_context.client_id.clone(),

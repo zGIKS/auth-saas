@@ -84,6 +84,7 @@ where
             schema_name: command.schema_name.clone(),
             admin_user_id: command.admin_user_id,
             anon_key: TenantAnonKey::new(anon_key.clone())?,
+            frontend_url: command.frontend_url,
             secret_key_hash,
             google_oauth_configuration: Some(command.google_oauth_configuration),
             status: TenantStatus::Active,

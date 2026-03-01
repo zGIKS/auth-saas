@@ -6,6 +6,8 @@ pub enum DomainError {
     InvalidTenantAnonKey,
     #[error("Invalid tenant name")]
     InvalidTenantName,
+    #[error("Invalid frontend url")]
+    InvalidFrontendUrl,
     #[error("Invalid role")]
     InvalidRole,
     #[error("Invalid status")]

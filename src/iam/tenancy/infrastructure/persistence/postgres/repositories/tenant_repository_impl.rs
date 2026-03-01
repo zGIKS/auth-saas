@@ -3,8 +3,9 @@ use crate::iam::tenancy::domain::{
         aggregates::tenant::{Tenant as DomainTenant, TenantConstructionData},
         value_objects::{
             google_oauth_tenant_configuration::GoogleOAuthTenantConfiguration,
-            tenant_anon_key::TenantAnonKey, tenant_id::TenantId, tenant_name::TenantName,
-            tenant_schema_name::TenantSchemaName, tenant_status::TenantStatus,
+            tenant_anon_key::TenantAnonKey, tenant_frontend_url::TenantFrontendUrl,
+            tenant_id::TenantId, tenant_name::TenantName, tenant_schema_name::TenantSchemaName,
+            tenant_status::TenantStatus,
         },
     },
     repositories::tenant_repository::TenantRepository,
@@ -34,6 +35,7 @@ impl TenantRepositoryImpl {
             schema_name: Set(tenant.schema_name().value().to_string()),
             admin_user_id: Set(tenant.admin_user_id()),
             anon_key: Set(tenant.anon_key().value().to_string()),
+            frontend_url: Set(tenant.frontend_url().value().to_string()),
             secret_key_hash: Set(tenant.secret_key_hash().to_string()),
             google_client_id: Set(tenant
                 .google_oauth_configuration()
@@ -66,6 +68,8 @@ impl TenantRepositoryImpl {
                 .map_err(Box::<dyn Error + Send + Sync>::from)?,
             admin_user_id: model.admin_user_id,
             anon_key: TenantAnonKey::new(model.anon_key)
+                .map_err(Box::<dyn Error + Send + Sync>::from)?,
+            frontend_url: TenantFrontendUrl::new(model.frontend_url)
                 .map_err(Box::<dyn Error + Send + Sync>::from)?,
             secret_key_hash: model.secret_key_hash,
             google_oauth_configuration,

@@ -1,7 +1,7 @@
 use crate::iam::tenancy::domain::model::value_objects::{
     google_oauth_tenant_configuration::GoogleOAuthTenantConfiguration,
-    tenant_anon_key::TenantAnonKey, tenant_id::TenantId, tenant_name::TenantName,
-    tenant_schema_name::TenantSchemaName, tenant_status::TenantStatus,
+    tenant_anon_key::TenantAnonKey, tenant_frontend_url::TenantFrontendUrl, tenant_id::TenantId,
+    tenant_name::TenantName, tenant_schema_name::TenantSchemaName, tenant_status::TenantStatus,
 };
 use crate::shared::domain::model::entities::auditable_model::AuditableModel;
 use uuid::Uuid;
@@ -13,6 +13,7 @@ pub struct Tenant {
     schema_name: TenantSchemaName,
     admin_user_id: Uuid,
     anon_key: TenantAnonKey,
+    frontend_url: TenantFrontendUrl,
     secret_key_hash: String,
     google_oauth_configuration: Option<GoogleOAuthTenantConfiguration>,
     status: TenantStatus,
@@ -26,6 +27,7 @@ pub struct TenantConstructionData {
     pub schema_name: TenantSchemaName,
     pub admin_user_id: Uuid,
     pub anon_key: TenantAnonKey,
+    pub frontend_url: TenantFrontendUrl,
     pub secret_key_hash: String,
     pub google_oauth_configuration: Option<GoogleOAuthTenantConfiguration>,
     pub status: TenantStatus,
@@ -40,6 +42,7 @@ impl Tenant {
             schema_name: data.schema_name,
             admin_user_id: data.admin_user_id,
             anon_key: data.anon_key,
+            frontend_url: data.frontend_url,
             secret_key_hash: data.secret_key_hash,
             google_oauth_configuration: data.google_oauth_configuration,
             status: data.status,
@@ -65,6 +68,10 @@ impl Tenant {
 
     pub fn anon_key(&self) -> &TenantAnonKey {
         &self.anon_key
+    }
+
+    pub fn frontend_url(&self) -> &TenantFrontendUrl {
+        &self.frontend_url
     }
 
     pub fn secret_key_hash(&self) -> &str {

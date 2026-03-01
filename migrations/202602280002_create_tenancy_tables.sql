@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS tenants (
     schema_name varchar NOT NULL UNIQUE,
     admin_user_id uuid NOT NULL REFERENCES users(id),
     anon_key varchar NOT NULL UNIQUE,
+    frontend_url varchar NOT NULL,
     secret_key_hash varchar NOT NULL,
     google_client_id varchar,
     google_client_secret varchar,

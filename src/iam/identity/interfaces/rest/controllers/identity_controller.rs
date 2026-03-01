@@ -72,6 +72,33 @@ async fn resolve_target_schema(
     Ok(resolved.schema_name)
 }
 
+async fn resolve_frontend_url(
+    state: &AppState,
+    tenant_anon_key: Option<String>,
+) -> Result<String, String> {
+    let fallback = state
+        .frontend_url
+        .clone()
+        .unwrap_or_else(|| "http://localhost:3000".to_string());
+
+    let Some(tenant_anon_key) = tenant_anon_key else {
+        return Ok(fallback);
+    };
+
+    let tenant_repository = TenantRepositoryImpl::new(state.db.clone());
+    let tenancy_query_service = TenancyQueryServiceImpl::new(tenant_repository);
+    let tenancy_facade = TenancyFacadeImpl::new(Arc::new(tenancy_query_service));
+
+    match tenancy_facade
+        .resolve_schema_by_anon_key(tenant_anon_key)
+        .await
+    {
+        Ok(Some(context)) => Ok(context.frontend_url),
+        Ok(None) => Err("Invalid tenant_anon_key".to_string()),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/identity/sign-up",
@@ -199,14 +226,16 @@ pub async fn confirm_registration(
     State(state): State<AppState>,
     Query(params): Query<ConfirmEmailQueryParams>,
 ) -> impl IntoResponse {
+    let frontend_url = match resolve_frontend_url(&state, params.tenant_anon_key.clone()).await {
+        Ok(url) => url,
+        Err(error) => return ErrorResponse::new(error).with_code(400).into_response(),
+    };
+
     // Validate query params
     if let Err(e) = params.validate() {
         let error_url = format!(
             "{}/email-verification-failed?error=invalid_token&message={}",
-            state
-                .frontend_url
-                .as_deref()
-                .unwrap_or("http://localhost:3000"),
+            frontend_url,
             urlencoding::encode(&e.to_string())
         );
         return Redirect::to(&error_url).into_response();
@@ -218,10 +247,7 @@ pub async fn confirm_registration(
         Err(e) => {
             let error_url = format!(
                 "{}/email-verification-failed?error=invalid_token&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode(&e.to_string())
             );
             return Redirect::to(&error_url).into_response();
@@ -236,10 +262,7 @@ pub async fn confirm_registration(
         Err(error) => {
             let error_url = format!(
                 "{}/email-verification-failed?error=invalid_tenant&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode(&error)
             );
             return Redirect::to(&error_url).into_response();
@@ -252,10 +275,7 @@ pub async fn confirm_registration(
         Err(error) => {
             let error_url = format!(
                 "{}/email-verification-failed?error=invalid_tenant&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode(&error)
             );
             return Redirect::to(&error_url).into_response();
@@ -270,10 +290,7 @@ pub async fn confirm_registration(
             tracing::error!("Failed to initialize email sender: {}", e);
             let error_url = format!(
                 "{}/email-verification-failed?error=service_unavailable&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode("Service temporarily unavailable")
             );
             return Redirect::to(&error_url).into_response();
@@ -302,13 +319,7 @@ pub async fn confirm_registration(
 
     match service.confirm_registration(command).await {
         Ok(_) => {
-            let success_url = format!(
-                "{}/email-verified?success=true",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000")
-            );
+            let success_url = format!("{}/email-verified?success=true", frontend_url);
             Redirect::to(&success_url).into_response()
         }
         Err(e) => {
@@ -322,10 +333,7 @@ pub async fn confirm_registration(
             };
             let error_url = format!(
                 "{}/email-verification-failed?error=verification_failed&message={}",
-                state
-                    .frontend_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:3000"),
+                frontend_url,
                 urlencoding::encode(error_msg)
             );
             Redirect::to(&error_url).into_response()

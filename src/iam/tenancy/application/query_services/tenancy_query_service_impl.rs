@@ -55,6 +55,7 @@ where
         Ok(Some(TenantSchemaContext {
             tenant_id: tenant.id(),
             schema_name: tenant.schema_name().value().to_string(),
+            frontend_url: tenant.frontend_url().value().to_string(),
         }))
     }
 
@@ -83,6 +84,7 @@ where
         Ok(Some(TenantOAuthConfigurationContext {
             tenant_id: tenant.id(),
             schema_name: tenant.schema_name().value().to_string(),
+            frontend_url: tenant.frontend_url().value().to_string(),
             google_client_id: google_oauth_configuration.client_id().to_string(),
             google_client_secret: google_oauth_configuration.client_secret().to_string(),
         }))

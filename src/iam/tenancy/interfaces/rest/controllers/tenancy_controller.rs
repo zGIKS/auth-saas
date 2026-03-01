@@ -131,6 +131,7 @@ pub async fn create_tenant_schema(
     let command = match CreateTenantSchemaCommand::new(
         resource.tenant_name,
         admin_user_id,
+        resource.frontend_url,
         resource.google_client_id,
         resource.google_client_secret,
     ) {

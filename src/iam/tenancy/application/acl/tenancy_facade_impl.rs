@@ -50,6 +50,7 @@ where
         Ok(context.map(|ctx| TenantSchemaContextAcl {
             tenant_id: ctx.tenant_id.value(),
             schema_name: ctx.schema_name,
+            frontend_url: ctx.frontend_url,
         }))
     }
 
@@ -69,6 +70,7 @@ where
         Ok(context.map(|ctx| TenantOAuthConfigurationContextAcl {
             tenant_id: ctx.tenant_id.value(),
             schema_name: ctx.schema_name,
+            frontend_url: ctx.frontend_url,
             google_client_id: ctx.google_client_id,
             google_client_secret: ctx.google_client_secret,
         }))
