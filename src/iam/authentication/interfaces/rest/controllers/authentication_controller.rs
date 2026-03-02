@@ -41,7 +41,7 @@ use crate::shared::interfaces::rest::error_response::ErrorResponse;
 
 use axum::{
     extract::{ConnectInfo, Json, Query, State},
-    http::StatusCode,
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use std::net::SocketAddr;
@@ -300,11 +300,25 @@ pub async fn refresh_token(
 )]
 pub async fn verify_token(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(resource): Query<VerifyTokenResource>,
 ) -> impl IntoResponse {
-    if let Err(e) = resource.validate() {
-        return (StatusCode::BAD_REQUEST, e.to_string()).into_response();
-    }
+    let token_from_header = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    let token = token_from_header
+        .or(resource.token)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    let Some(token) = token else {
+        return (StatusCode::BAD_REQUEST, "token is required").into_response();
+    };
 
     let token_service =
         JwtTokenService::new(state.jwt_secret.clone(), state.session_duration_seconds);
@@ -313,7 +327,7 @@ pub async fn verify_token(
 
     let service = AuthenticationQueryServiceImpl::new(token_service, session_repo);
 
-    match service.verify_token(&resource.token).await {
+    match service.verify_token(&token).await {
         Ok(claims) => (
             StatusCode::OK,
             Json(VerifyTokenResponse {

@@ -145,12 +145,16 @@ impl TenantRepository for TenantRepositoryImpl {
     async fn update_tenant_schema_configuration(
         &self,
         tenant_id: TenantId,
+        tenant_name: Option<String>,
         frontend_url: Option<String>,
         google_client_id: Option<String>,
         google_client_secret: Option<String>,
     ) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut update = TenantEntity::update_many();
 
+        if let Some(tenant_name) = tenant_name {
+            update = update.col_expr(Column::Name, Expr::value(tenant_name));
+        }
         if let Some(frontend_url) = frontend_url {
             update = update.col_expr(Column::FrontendUrl, Expr::value(frontend_url));
         }

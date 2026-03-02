@@ -46,7 +46,7 @@ fn print_help() {
     println!(
         "tenancy_cli commands:
   tenant-create       --name <name> [--frontend-url <url>] [--google-client-id <id> --google-client-secret <secret>]
-  tenant-edit         --tenant-id <uuid> [--frontend-url <url>] [--google-client-id <id>] [--google-client-secret <secret>]
+  tenant-edit         --tenant-id <uuid> [--name <name>] [--frontend-url <url>] [--google-client-id <id>] [--google-client-secret <secret>]
   tenant-rotate-keys  --tenant-id <uuid>
   tenant-delete       --tenant-id <uuid>
 "

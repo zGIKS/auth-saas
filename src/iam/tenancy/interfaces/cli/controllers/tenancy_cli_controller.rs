@@ -62,6 +62,7 @@ impl TenancyCliController {
 
         let command = UpdateTenantSchemaConfigurationCommand::new(
             resource.tenant_id,
+            resource.tenant_name,
             resource.frontend_url,
             resource.google_client_id,
             resource.google_client_secret,

@@ -170,6 +170,7 @@ where
         self.tenant_repository
             .update_tenant_schema_configuration(
                 command.tenant_id,
+                command.tenant_name.map(|name| name.value().to_string()),
                 command.frontend_url.map(|url| url.value().to_string()),
                 command
                     .google_oauth_configuration

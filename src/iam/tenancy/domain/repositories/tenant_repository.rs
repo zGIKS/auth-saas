@@ -37,6 +37,7 @@ pub trait TenantRepository: Send + Sync {
     fn update_tenant_schema_configuration(
         &self,
         tenant_id: TenantId,
+        tenant_name: Option<String>,
         frontend_url: Option<String>,
         google_client_id: Option<String>,
         google_client_secret: Option<String>,

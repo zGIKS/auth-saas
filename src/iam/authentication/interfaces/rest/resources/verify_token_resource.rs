@@ -1,13 +1,11 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
-use validator::Validate;
 
-#[derive(Deserialize, IntoParams, Validate, ToSchema)]
+#[derive(Deserialize, IntoParams, ToSchema)]
 pub struct VerifyTokenResource {
-    #[validate(length(min = 1))]
     #[schema(example = "eyJhbGciOiJIUzI1Ni...")]
-    pub token: String,
+    pub token: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]

@@ -4,6 +4,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone)]
 pub struct UpdateTenantSchemaConfigurationCliResource {
     pub tenant_id: Uuid,
+    pub tenant_name: Option<String>,
     pub frontend_url: Option<String>,
     pub google_client_id: Option<String>,
     pub google_client_secret: Option<String>,
@@ -17,6 +18,7 @@ impl UpdateTenantSchemaConfigurationCliResource {
 
         Ok(Self {
             tenant_id,
+            tenant_name: optional_flag(args, "--name"),
             frontend_url: optional_flag(args, "--frontend-url"),
             google_client_id: optional_flag(args, "--google-client-id"),
             google_client_secret: optional_flag(args, "--google-client-secret"),
