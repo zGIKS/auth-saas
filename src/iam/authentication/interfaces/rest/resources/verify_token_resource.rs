@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
-
 #[derive(Deserialize, IntoParams, ToSchema)]
 pub struct VerifyTokenResource {
     #[schema(example = "eyJhbGciOiJIUzI1Ni...")]

@@ -310,7 +310,6 @@ pub async fn verify_token(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned);
-
     let token = token_from_header
         .or(resource.token)
         .map(|value| value.trim().to_string())
